@@ -1,0 +1,15 @@
+# Local upstream engine checkouts
+engines/
+
+# Agent/runtime artifacts
+.beaupi/
+
+# JavaScript build artifacts
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+*.log
+
+# OS metadata
+.DS_Store
