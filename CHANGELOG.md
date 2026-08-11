@@ -2,6 +2,22 @@
 
 All notable changes to Pipyter are documented in this file.
 
+## [0.1.2] - 2025-08-11
+
+### Added
+
+- `pipyter lab --verbose` shows per-request access logs; the default mode now
+  only prints the Workspace URL and startup status.
+- New `.ipynb` files are created with a valid empty notebook document and open
+  automatically in the editor, so they are editable immediately after
+  creation.
+- On headless sessions (no graphical display), `pipyter lab` prints the
+  Workspace URL instead of failing to launch a browser.
+
+### Fixed
+
+- Creating a `.ipynb` file no longer yields a 400 error when opening it.
+
 ## [0.1.1] - 2025-08-11
 
 ### Added

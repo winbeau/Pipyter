@@ -62,6 +62,7 @@ def build_parser() -> argparse.ArgumentParser:
     lab.add_argument("--host", default="127.0.0.1")
     lab.add_argument("--port", type=int, default=8765)
     lab.add_argument("--no-browser", action="store_true", help="Do not open a browser tab automatically")
+    lab.add_argument("--verbose", action="store_true", help="Show per-request access logs")
     return parser
 
 
@@ -182,6 +183,20 @@ def _serve(args: argparse.Namespace) -> int:
     return 0
 
 
+def _open_browser(url: str) -> None:
+    """Open the URL in a browser, or print it on headless sessions."""
+    headless = (
+        os.name != "nt"
+        and sys.platform != "darwin"
+        and not os.environ.get("DISPLAY")
+        and not os.environ.get("WAYLAND_DISPLAY")
+    )
+    if headless:
+        print(f"No graphical session detected — open the Workspace manually: {url}", flush=True)
+        return
+    webbrowser.open(url)
+
+
 def _lab(args: argparse.Namespace) -> int:
     """Launch the Workspace web UI: auto-link the directory, serve the bundled
     portal and API on one origin, and open the browser at the Workspace page."""
@@ -193,14 +208,20 @@ def _lab(args: argparse.Namespace) -> int:
         project = load_project(args.path)
     except ProjectNotLinkedError:
         project = link_project(args.path)
-        print(f"Linked workspace {project.name} at {project.root}")
+        print(f"Linked workspace {project.name} at {project.root}", flush=True)
 
     url = f"http://{args.host}:{args.port}/#/workspace"
-    print(f"Pipyter Workspace: {url}")
-    print(f"Workspace root: {project.root}")
+    print(f"Pipyter Workspace: {url}", flush=True)
+    print(f"Workspace root: {project.root}", flush=True)
     if not args.no_browser:
-        threading.Timer(0.8, lambda: webbrowser.open(url)).start()
-    uvicorn.run(create_app(project.root), host=args.host, port=args.port)
+        threading.Timer(0.8, lambda: _open_browser(url)).start()
+    uvicorn.run(
+        create_app(project.root),
+        host=args.host,
+        port=args.port,
+        access_log=args.verbose,
+        log_level="info" if args.verbose else "warning",
+    )
     return 0
 
 

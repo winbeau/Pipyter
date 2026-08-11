@@ -747,15 +747,26 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const newFile = useCallback(
     async (dir: string, name: string) => {
       const path = dir ? `${dir}/${name}` : name
+      const isNotebook = name.toLowerCase().endsWith('.ipynb')
       try {
-        await apiRef.current.writeFile(path, '')
+        if (isNotebook) {
+          await apiRef.current.writeNotebook(path, {
+            cells: [],
+            metadata: {},
+            nbformat: 4,
+            nbformat_minor: 5,
+          })
+        } else {
+          await apiRef.current.writeFile(path, '')
+        }
         notify(`已创建 ${path}`)
         await refreshTree()
+        await openDoc(path, isNotebook ? 'notebook' : 'text')
       } catch (error) {
         notify(`创建失败: ${errorMessage(error)}`)
       }
     },
-    [notify, refreshTree],
+    [notify, refreshTree, openDoc],
   )
 
   const newFolder = useCallback(
