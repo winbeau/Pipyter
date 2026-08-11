@@ -1,0 +1,30 @@
+{
+	"extends": "../tsconfig.base.json",
+	"compilerOptions": {
+		"outDir": "./dist",
+		"paths": {
+			"@pipyter/pigent-agent": [
+				"../agent/dist/index.d.ts"
+			],
+			"@pipyter/pigent-agent/*": [
+				"../agent/dist/*.d.ts"
+			],
+			"@pipyter/pigent-ai": [
+				"../ai/dist/index.d.ts"
+			],
+			"@pipyter/pigent-ai/*": [
+				"../ai/dist/*.d.ts",
+				"../ai/dist/providers/*.d.ts"
+			]
+		},
+		"rootDir": "./src"
+	},
+	"include": [
+		"src/**/*.ts",
+		"src/**/*.d.ts"
+	],
+	"exclude": [
+		"node_modules",
+		"dist"
+	]
+}

@@ -105,6 +105,21 @@ class TerminalExecuteResponse(BaseModel):
     exit_code: int
 
 
+class TerminalSessionCreateRequest(BaseModel):
+    name: str | None = None
+    executable: str | None = None
+    cwd: str = "."
+    env: dict[str, str] = Field(default_factory=dict)
+    cols: int = Field(default=80, ge=2, le=500)
+    rows: int = Field(default=24, ge=1, le=500)
+    argv: list[str] | None = None
+
+
+class TerminalResizeRequest(BaseModel):
+    cols: int = Field(ge=2, le=500)
+    rows: int = Field(ge=1, le=500)
+
+
 class RunningItem(BaseModel):
     id: str
     kind: Literal["kernel", "terminal"]

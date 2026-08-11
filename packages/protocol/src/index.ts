@@ -135,3 +135,5 @@ export type WorkspaceApi = {
   terminalExecute(command: string, cwd?: string, timeout?: number): Promise<TerminalExecuteResponse>
   getRunning(): Promise<RunningResponse>
 }
+
+export * from './pigent.ts'

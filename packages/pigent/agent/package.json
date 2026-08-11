@@ -1,0 +1,47 @@
+{
+	"name": "@pipyter/pigent-agent",
+	"version": "1.1.0",
+	"description": "Pigent general-purpose agent for Pipyter with transport abstraction, state management, and attachment support",
+	"type": "module",
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js"
+		},
+		"./node": {
+			"types": "./dist/node.d.ts",
+			"import": "./dist/node.js"
+		},
+		"./package.json": "./package.json"
+	},
+	"files": [
+		"dist",
+		"README.md"
+	],
+	"scripts": {
+		"clean": "shx rm -rf dist",
+		"build": "tsc -p tsconfig.build.json",
+		"typecheck": "tsc -p tsconfig.build.json --noEmit",
+		"test": "vitest --run"
+	},
+	"dependencies": {
+		"@pipyter/pigent-ai": "^1.1.0",
+		"diff": "8.0.4",
+		"ignore": "7.0.5",
+		"typebox": "1.1.38",
+		"yaml": "2.9.0"
+	},
+	"author": "winbeau",
+	"license": "MIT",
+	"engines": {
+		"node": ">=22.19.0"
+	},
+	"devDependencies": {
+		"@types/node": "24.12.4",
+		"shx": "0.4.0",
+		"typescript": "5.9.3",
+		"vitest": "4.1.9"
+	}
+}

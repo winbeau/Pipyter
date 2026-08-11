@@ -1,0 +1,19 @@
+{
+  "name": "@pipyter/pigent-host",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/main.js",
+  "types": "./dist/main.d.ts",
+  "scripts": { "build": "tsc -p tsconfig.build.json" },
+  "dependencies": {
+    "@pipyter/pigent-runtime": "^1.1.0",
+    "@pipyter/pigent-agent": "^1.1.0",
+    "@pipyter/pigent-ai": "^1.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "24.12.4",
+    "typescript": "5.9.3"
+  },
+  "engines": { "node": ">=22.19.0" }
+}

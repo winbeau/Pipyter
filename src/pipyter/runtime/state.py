@@ -19,6 +19,12 @@ class RuntimeState:
     token_fingerprint: str | None = None
     started_at: float = 0.0
     status: str = "stopped"
+    pigent_pid: int | None = None
+    pigent_status: str = "stopped"
+    pigent_protocol_version: str = "0.1"
+    pigent_runtime_version: str | None = None
+    pigent_started_at: float = 0.0
+    pigent_restart_count: int = 0
 
     def save(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)

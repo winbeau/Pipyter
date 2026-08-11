@@ -20,6 +20,41 @@ def test_workspace_summary(client, project):
     assert body["open_documents"] == []
 
 
+def test_pigent_config_is_sanitized_and_bridge_credential_is_not_public(client):
+    store = client.app.state.pigent_config
+    store.initialize()
+    store.settings_path.write_text('{"version": 1}\n', encoding="utf-8")
+    store.auth_path.write_text('{}\n', encoding="utf-8")
+    auth = store.read_auth()
+    response = client.put("/api/v1/pigent/auth/custom", json={
+        "type": "api_key", "baseUrl": "https://example.test", "key": "browser-must-not-read-this",
+        "revision": auth.revision,
+    })
+    assert response.status_code == 200
+    config = client.get("/api/v1/pigent/config")
+    assert config.status_code == 200
+    assert "browser-must-not-read-this" not in config.text
+    assert "bridge" not in config.text.lower()
+    capabilities = client.get("/api/v1/pigent/capabilities")
+    assert capabilities.status_code == 200
+    assert client.app.state.pigent_bridge_credential not in capabilities.text
+    assert "bridge_endpoint" not in capabilities.text
+
+
+def test_malformed_pigent_config_preserves_workspace_api(client):
+    store = client.app.state.pigent_config
+    store.initialize()
+    malformed = b'{"version":\n'
+    store.settings_path.write_bytes(malformed)
+    response = client.get("/api/v1/pigent/config")
+    assert response.status_code == 409
+    update = client.put("/api/v1/pigent/config/model", json={"defaultProvider": "faux", "defaultModel": "m"})
+    assert update.status_code == 409
+    assert store.settings_path.read_bytes() == malformed
+    assert client.get("/api/v1/workspace").status_code == 200
+    store.settings_path.write_text('{"version": 1}\n', encoding="utf-8")
+
+
 def test_files_listing(client):
     response = client.get("/api/v1/files")
     assert response.status_code == 200

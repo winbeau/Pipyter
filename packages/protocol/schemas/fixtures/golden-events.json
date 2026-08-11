@@ -1,0 +1,73 @@
+{
+  "name": "golden-events",
+  "description": "Cross-language golden fixture: public Pigent events including tool lifecycle and a PTY-handoff interaction. Interaction events never contain passwords, tokens, headers or terminal input bytes.",
+  "protocol_version": "0.1",
+  "events": [
+    {
+      "version": 1,
+      "event_id": 1,
+      "session_id": "pigent_sess_01",
+      "type": "session.created",
+      "timestamp": "2025-01-01T00:00:00Z",
+      "payload": {
+        "mode": "auto",
+        "status": "active"
+      }
+    },
+    {
+      "version": 1,
+      "event_id": 2,
+      "session_id": "pigent_sess_01",
+      "type": "tool.start",
+      "timestamp": "2025-01-01T00:00:01Z",
+      "payload": {
+        "tool_call_id": "call_01",
+        "tool": "read",
+        "status": "running"
+      }
+    },
+    {
+      "version": 1,
+      "event_id": 3,
+      "session_id": "pigent_sess_01",
+      "type": "tool.end",
+      "timestamp": "2025-01-01T00:00:02Z",
+      "payload": {
+        "tool_call_id": "call_01",
+        "tool": "read",
+        "status": "completed",
+        "summary": "Read src/model.py (2,000/2,000 lines)"
+      }
+    },
+    {
+      "version": 1,
+      "event_id": 4,
+      "session_id": "pigent_sess_01",
+      "type": "interaction.required",
+      "timestamp": "2025-01-01T00:00:03Z",
+      "payload": {
+        "interaction": {
+          "version": 1,
+          "interaction_id": "interaction_01",
+          "session_id": "pigent_sess_01",
+          "tool_call_id": "call_02",
+          "kind": "pty_handoff",
+          "summary": "Command is waiting for terminal input",
+          "shell_session_id": "shell_01",
+          "command_preview": "sudo apt-get install -y cmake",
+          "choices": ["open_shell", "cancel"]
+        }
+      }
+    },
+    {
+      "version": 1,
+      "event_id": 5,
+      "session_id": "pigent_sess_01",
+      "type": "settled",
+      "timestamp": "2025-01-01T00:00:04Z",
+      "payload": {
+        "status": "waiting_for_user"
+      }
+    }
+  ]
+}

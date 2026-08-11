@@ -1,0 +1,51 @@
+{
+	"name": "@pipyter/pigent-runtime",
+	"version": "1.1.0",
+	"description": "Pigent session runtime core for Pipyter: AgentSession, JSONL sessions, Dynamic Tasks, AgentPool, and model configuration",
+	"type": "module",
+	"piConfig": {
+		"name": "pigent",
+		"title": "Pigent",
+		"configDir": ".pipyter/pigent"
+	},
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js"
+		}
+	},
+	"files": [
+		"dist",
+		"CHANGELOG.md"
+	],
+	"scripts": {
+		"clean": "shx rm -rf dist",
+		"build": "tsc -p tsconfig.build.json",
+		"typecheck": "tsc -p tsconfig.build.json --noEmit",
+		"test": "vitest --run"
+	},
+	"dependencies": {
+		"@pipyter/pigent-agent": "^1.1.0",
+		"@pipyter/pigent-ai": "^1.1.0",
+		"cross-spawn": "7.0.6",
+		"minimatch": "10.2.5",
+		"proper-lockfile": "4.1.2",
+		"typebox": "1.1.38",
+		"yaml": "2.9.0"
+	},
+	"author": "winbeau",
+	"license": "MIT",
+	"engines": {
+		"node": ">=22.19.0"
+	},
+	"devDependencies": {
+		"@types/cross-spawn": "6.0.6",
+		"@types/node": "24.12.4",
+		"@types/proper-lockfile": "4.1.4",
+		"shx": "0.4.0",
+		"typescript": "5.9.3",
+		"vitest": "4.1.9"
+	}
+}

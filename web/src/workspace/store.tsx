@@ -13,7 +13,7 @@ import type { ExecuteResponse, KernelOutput, KernelSpecSummary, KernelSummary, N
 import { ApiUnavailableError, createApiClient, detectMode, type WorkspaceApiClient } from './api'
 import { demoNotebookCells } from './demo'
 import { defaultKeymap, loadKeymap, persistKeymap, type KeyActionId, type KeyCombo, type Keymap } from './keymap'
-import type { CellModel, DialogState, DocKind, FileEntry, LeftTab, Mode, OpenDoc, TerminalLine, WorkspaceState } from './types'
+import type { CellModel, DialogState, DocKind, FileEntry, LeftTab, Mode, OpenDoc, WorkspaceState } from './types'
 
 const STORAGE_KEY = 'pipyter.workspace.v2'
 
@@ -39,8 +39,6 @@ const initialState: WorkspaceState = {
   leftTab: 'files',
   leftOpen: true,
   bottomOpen: false,
-  terminalLines: [{ text: 'Pipyter Workspace terminal — 输入 help 查看可用命令', kind: 'sys' }],
-  terminalHistory: [],
   dialog: null,
   toast: null,
   lastError: null,
@@ -68,9 +66,6 @@ type Action =
   | { type: 'setRunning'; running: RunningResponse | null }
   | { type: 'setBusy'; busy: boolean; cell?: { path: string; index: number } | null }
   | { type: 'applyExecute'; path: string; index: number; result: ExecuteResponse }
-  | { type: 'terminalIn'; command: string }
-  | { type: 'terminalOut'; stdout: string; stderr: string; exitCode: number }
-  | { type: 'terminalClear' }
   | { type: 'setLeftTab'; tab: LeftTab }
   | { type: 'setLeftOpen'; open: boolean }
   | { type: 'setBottomOpen'; open: boolean }
@@ -168,22 +163,6 @@ function reducer(state: WorkspaceState, action: Action): WorkspaceState {
       )
       return { ...state, notebooks: { ...state.notebooks, [action.path]: next } }
     }
-    case 'terminalIn': {
-      return {
-        ...state,
-        terminalLines: [...state.terminalLines, { text: `$ ${action.command}`, kind: 'in' }],
-        terminalHistory: [...state.terminalHistory, action.command],
-      }
-    }
-    case 'terminalOut': {
-      const lines: TerminalLine[] = [...state.terminalLines]
-      if (action.stdout) lines.push({ text: action.stdout.replace(/\n$/, ''), kind: 'out' })
-      if (action.stderr) lines.push({ text: action.stderr.replace(/\n$/, ''), kind: 'err' })
-      lines.push({ text: `[exit ${action.exitCode}]`, kind: 'sys' })
-      return { ...state, terminalLines: lines }
-    }
-    case 'terminalClear':
-      return { ...state, terminalLines: [] }
     case 'setLeftTab':
       return { ...state, leftTab: action.tab }
     case 'setLeftOpen':
@@ -295,8 +274,6 @@ export type WorkspaceActions = {
   renamePath: (path: string, newName: string) => Promise<void>
   deletePath: (path: string) => Promise<void>
   uploadFiles: (files: FileList | null) => Promise<void>
-  terminalRun: (command: string) => Promise<void>
-  terminalClear: () => void
   setLeftTab: (tab: LeftTab) => void
   setLeftOpen: (open: boolean) => void
   setBottomOpen: (open: boolean) => void
@@ -858,19 +835,6 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     [apiMode, notify, refreshTree],
   )
 
-  const terminalRun = useCallback(
-    async (command: string) => {
-      dispatch({ type: 'terminalIn', command })
-      try {
-        const result = await apiRef.current.terminal(command, stateRef.current.cwd || '.')
-        dispatch({ type: 'terminalOut', stdout: result.stdout, stderr: result.stderr, exitCode: result.exit_code })
-      } catch (error) {
-        dispatch({ type: 'terminalOut', stdout: '', stderr: errorMessage(error), exitCode: 1 })
-      }
-      await refreshRunning()
-    },
-    [refreshRunning],
-  )
 
   const actions = useMemo<WorkspaceActions>(
     () => ({
@@ -919,8 +883,6 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       renamePath,
       deletePath,
       uploadFiles,
-      terminalRun,
-      terminalClear: () => dispatch({ type: 'terminalClear' }),
       setLeftTab: (tab) => dispatch({ type: 'setLeftTab', tab }),
       setLeftOpen: (open) => dispatch({ type: 'setLeftOpen', open }),
       setBottomOpen: (open) => dispatch({ type: 'setBottomOpen', open }),
@@ -959,7 +921,6 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       renamePath,
       deletePath,
       uploadFiles,
-      terminalRun,
       notify,
     ],
   )

@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 
 from ..workspace.project import ProjectBinding
+from ..pigent.resources import diagnostics as pigent_diagnostics
 from .jupyter import build_jupyter_command, new_runtime_token, token_fingerprint
 from .state import RuntimeState, pid_alive
 
@@ -85,8 +86,17 @@ class RuntimeManager:
 
     def status(self) -> dict[str, object]:
         state = self.state()
+        pigent = pigent_diagnostics(verify_hashes=False)
+        pigent_finding = {
+            "pigent_payload_ok": pigent["payload_ok"],
+            "pigent_payload_error": pigent["payload_error"],
+            "pigent_node_ok": pigent["node"]["ok"],
+            "pigent_node_version": pigent["node"]["version"],
+            "pigent_node_required": pigent["node"]["required"],
+            "pigent_node_finding": pigent["node"]["message"],
+        }
         if not state:
-            return {"status": "stopped", "workspace_id": self.project.workspace_id}
+            return {"status": "stopped", "workspace_id": self.project.workspace_id, **pigent_finding}
         return {
             "workspace_id": state.workspace_id,
             "root": state.root,
@@ -99,6 +109,14 @@ class RuntimeManager:
             "status": state.status,
             "api_alive": pid_alive(state.api_pid),
             "jupyter_alive": pid_alive(state.jupyter_pid),
+            "pigent_pid": state.pigent_pid,
+            "pigent_status": state.pigent_status,
+            "pigent_protocol_version": state.pigent_protocol_version,
+            "pigent_runtime_version": state.pigent_runtime_version,
+            "pigent_started_at": state.pigent_started_at,
+            "pigent_restart_count": state.pigent_restart_count,
+            "pigent_active_sessions": 0,
+            **pigent_finding,
         }
 
 

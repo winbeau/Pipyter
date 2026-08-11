@@ -1,0 +1,24 @@
+{
+  "name": "@pipyter/pigent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pigent first-party agent runtime for Pipyter",
+  "type": "module",
+  "workspaces": ["ai", "agent", "runtime", "host"],
+  "scripts": {
+    "build": "npm run build -w @pipyter/pigent-ai && npm run build -w @pipyter/pigent-agent && npm run build -w @pipyter/pigent-runtime && npm run build -w @pipyter/pigent-host",
+    "typecheck": "tsc -b tsconfig.json",
+    "test": "vitest --run runtime/test",
+    "host:smoke": "node host/dist/main.js --version",
+    "payload:build": "node scripts/build-runtime.mjs",
+    "payload:verify": "node scripts/build-runtime.mjs --verify",
+    "check:engine-independence": "node scripts/check-engine-independence.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "24.12.4",
+    "typescript": "5.9.3"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  }
+}

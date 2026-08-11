@@ -1,0 +1,97 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://pipyter.icthub.top/schemas/pigent-events.schema.json",
+  "title": "Pigent public event contract",
+  "description": "Versioned public browser events translated from internal copied-runtime events (docs/plans/pigent-v0.1/04-runtime-bridge.md). Internal RPC events are never exposed without translation.",
+  "definitions": {
+    "eventType": {
+      "type": "string",
+      "enum": [
+        "session.created",
+        "session.updated",
+        "mode.changed",
+        "assistant.text",
+        "assistant.thinking",
+        "tool.start",
+        "tool.update",
+        "tool.end",
+        "tasks.snapshot",
+        "delegate.start",
+        "delegate.update",
+        "delegate.end",
+        "interaction.required",
+        "interaction.resolved",
+        "context.updated",
+        "kernel.updated",
+        "artifact.created",
+        "error",
+        "aborted",
+        "settled",
+        "reconnect.cursor"
+      ]
+    },
+    "eventEnvelope": {
+      "type": "object",
+      "description": "Every streamed event. event_id is monotonically increasing per session; reconnect replays events after the client cursor exactly once.",
+      "additionalProperties": false,
+      "required": ["version", "event_id", "session_id", "type", "timestamp"],
+      "properties": {
+        "version": { "const": 1 },
+        "event_id": { "type": "integer", "minimum": 1 },
+        "session_id": { "type": "string", "minLength": 1 },
+        "type": { "$ref": "#/definitions/eventType" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "payload": { "type": "object", "additionalProperties": true }
+      }
+    },
+    "interactionKind": {
+      "type": "string",
+      "enum": ["pty_handoff", "review_request", "clarification"],
+      "description": "Human interaction is a host event, not an LLM tool."
+    },
+    "interaction": {
+      "type": "object",
+      "description": "PTY/browser handoff or optional review. Never contains passwords, tokens, authorization headers, or terminal input bytes; secret input travels directly to the process/flow.",
+      "additionalProperties": false,
+      "required": ["version", "interaction_id", "session_id", "tool_call_id", "kind", "summary", "choices"],
+      "properties": {
+        "version": { "const": 1 },
+        "interaction_id": { "type": "string", "minLength": 1 },
+        "session_id": { "type": "string", "minLength": 1 },
+        "tool_call_id": { "type": "string", "minLength": 1 },
+        "kind": { "$ref": "#/definitions/interactionKind" },
+        "summary": { "type": "string" },
+        "shell_session_id": { "type": "string" },
+        "command_preview": { "type": "string" },
+        "choices": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["open_shell", "cancel", "allow_once", "allow_workspace", "reject"] },
+          "uniqueItems": true,
+          "minItems": 1
+        }
+      }
+    },
+    "toolEventPayload": {
+      "type": "object",
+      "description": "Tool lifecycle events correlate with the bridge by tool_call_id.",
+      "additionalProperties": false,
+      "required": ["tool_call_id", "tool"],
+      "properties": {
+        "tool_call_id": { "type": "string", "minLength": 1 },
+        "tool": { "$ref": "pigent-tools.schema.json#/definitions/toolName" },
+        "action": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "running", "completed", "failed", "cancelled", "interaction_required"] },
+        "summary": { "type": "string" },
+        "result": { "$ref": "pigent-tools.schema.json#/definitions/toolResult" }
+      }
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocolVersion", "eventEnvelope", "eventTypes"],
+  "properties": {
+    "protocolVersion": { "const": "0.1" },
+    "eventEnvelope": { "$ref": "#/definitions/eventEnvelope" },
+    "eventTypes": { "type": "array", "items": { "$ref": "#/definitions/eventType" }, "uniqueItems": true, "minItems": 21, "maxItems": 21 }
+  }
+}

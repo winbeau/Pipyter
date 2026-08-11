@@ -12,7 +12,7 @@ export type FiguresDesignProps = {
   layerScatterStyle: CSSProperties
   layerXAxisStyle: CSSProperties
   layerYAxisStyle: CSSProperties
-  pilotToggleStyle: CSSProperties
+  pigentToggleStyle: CSSProperties
   selectedLineLabelStyle: CSSProperties
   tightToggleKnobStyle: CSSProperties
   tightToggleStyle: CSSProperties
@@ -28,10 +28,10 @@ export type FiguresDesignProps = {
   setFormatPng: () => void
   setFormatSvg: () => void
   toggleFrame: () => void
-  togglePilot: () => void
+  togglePigent: () => void
   toggleTight: () => void
   toggleTransparent: () => void
-  pilotOpen: boolean
+  pigentOpen: boolean
   selectedLineName: string
 }
 
@@ -47,8 +47,8 @@ export function FiguresDesign({
   layerScatterStyle,
   layerXAxisStyle,
   layerYAxisStyle,
-  pilotOpen,
-  pilotToggleStyle,
+  pigentOpen,
+  pigentToggleStyle,
   selectLegend,
   selectLine1,
   selectLine2,
@@ -63,7 +63,7 @@ export function FiguresDesign({
   tightToggleKnobStyle,
   tightToggleStyle,
   toggleFrame,
-  togglePilot,
+  togglePigent,
   toggleTight,
   toggleTransparent,
   transparentToggleKnobStyle,
@@ -114,12 +114,12 @@ export function FiguresDesign({
           </svg>
           {"Apply to Code "}
         </div>
-        <div style={pilotToggleStyle} onClick={togglePilot}>
+        <div style={pigentToggleStyle} onClick={togglePigent}>
           <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6">
             <circle cx="10" cy="10" r="6.5" />
             <circle cx="10" cy="10" r="1.6" fill="currentColor" stroke="none" />
           </svg>
-          {"Ask Pilot "}
+          {"Ask Pigent "}
         </div>
       </div>
       <div style={{ flex: "1", display: "flex", flexDirection: "row", minHeight: "0" } as CSSProperties}>
@@ -541,8 +541,8 @@ export function FiguresDesign({
               {"导出 Figure"}
             </div>
           </div>
-          {/* PILOT MINI PANEL */}
-          {pilotOpen && (
+          {/* PIGENT MINI PANEL */}
+          {pigentOpen && (
             <>
               <div style={{ flexShrink: "0", background: "var(--dark-bg)", color: "var(--dark-text)", borderTop: "1px solid var(--dark-border)", padding: "14px 18px" } as CSSProperties}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "10px" } as CSSProperties}>
@@ -551,9 +551,9 @@ export function FiguresDesign({
                       <circle cx="10" cy="10" r="6.5" />
                       <circle cx="10" cy="10" r="1.6" fill="currentColor" stroke="none" />
                     </svg>
-                    {"Ask Pilot"}
+                    {"Ask Pigent"}
                   </div>
-                  <svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="var(--dark-text-2)" strokeWidth="1.6" style={{ cursor: "pointer" } as CSSProperties} onClick={togglePilot}>
+                  <svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="var(--dark-text-2)" strokeWidth="1.6" style={{ cursor: "pointer" } as CSSProperties} onClick={togglePigent}>
                     <path d="M6 6l8 8M14 6l-8 8" />
                   </svg>
                 </div>
@@ -570,7 +570,7 @@ export function FiguresDesign({
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: "8px", background: "var(--dark-surface)", border: "1px solid var(--dark-border)", borderRadius: "18px", padding: "8px 12px" } as CSSProperties}>
                   <span style={{ flex: "1", fontSize: "11.5px", color: "var(--dark-text-2)" } as CSSProperties}>
-                    {"向 Pilot 描述你想要的调整…"}
+                    {"向 Pigent 描述你想要的调整…"}
                   </span>
                   <svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="var(--dark-text-2)" strokeWidth="1.6">
                     <path d="M4 10h12M11 5l5 5-5 5" />

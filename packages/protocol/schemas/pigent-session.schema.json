@@ -1,0 +1,143 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://pipyter.icthub.top/schemas/pigent-session.schema.json",
+  "title": "Pigent session, tasks, terminal and artifact contracts",
+  "description": "Frozen v0.1 session/tasks/terminal/artifact contracts shared by the Python runtime, Node host and browser (docs/plans/pigent-v0.1/03-modes-permissions.md, 04-runtime-bridge.md, 07-pigent-shell-ui-migration.md).",
+  "definitions": {
+    "sessionStatus": {
+      "type": "string",
+      "enum": ["active", "completed", "failed", "interrupted", "waiting_for_user"],
+      "description": "Lifecycle states surfaced in the Pigent session list and Workspace panel."
+    },
+    "pigentSession": {
+      "type": "object",
+      "description": "Public/registry Pigent session record. Conversation content stays runtime-local under <workspace>/.pipyter/pigent/.",
+      "additionalProperties": false,
+      "required": [
+        "id", "account_id", "project_id", "workspace_id", "node_id", "mode",
+        "approval_preference", "execution_identity", "status", "created_at", "last_activity_at"
+      ],
+      "properties": {
+        "id": { "type": "string", "pattern": "^pigent_[A-Za-z0-9_-]+$" },
+        "account_id": { "type": "string" },
+        "project_id": { "type": "string" },
+        "workspace_id": { "type": "string" },
+        "node_id": { "type": "string" },
+        "mode": { "$ref": "pigent-modes.schema.json#/definitions/mode" },
+        "approval_preference": { "type": "string", "enum": ["automatic", "review_all"], "default": "automatic" },
+        "execution_identity": { "$ref": "pigent-modes.schema.json#/definitions/executionIdentity" },
+        "status": { "$ref": "#/definitions/sessionStatus" },
+        "title": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "last_activity_at": { "type": "string", "format": "date-time" },
+        "active_document": { "$ref": "pigent-tools.schema.json#/definitions/toolRequestContext/properties/active_document" },
+        "active_kernel_id": { "type": "string" },
+        "model": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["provider", "model"],
+          "properties": {
+            "provider": { "type": "string" },
+            "model": { "type": "string" }
+          },
+          "description": "Resolved model snapshot for audit/reconnect; never a configuration source."
+        },
+        "tasks_snapshot": { "$ref": "#/definitions/tasksSnapshot" }
+      }
+    },
+    "taskNode": {
+      "type": "object",
+      "description": "One node of the Dynamic Task tree. Only the Coordinator can add/remove/rename/reorder/reopen or change dependencies.",
+      "additionalProperties": false,
+      "required": ["id", "title", "status"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "title": { "type": "string", "minLength": 1 },
+        "status": { "$ref": "pigent-tools.schema.json#/definitions/taskStatus" },
+        "depends_on": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "completion_criteria": { "type": "array", "items": { "type": "string" } },
+        "children": { "type": "array", "items": { "$ref": "#/definitions/taskNode" } }
+      }
+    },
+    "tasksSnapshot": {
+      "type": "object",
+      "description": "Compare-and-swap Tasks snapshot. Revision must be carried on every replace/patch.",
+      "additionalProperties": false,
+      "required": ["revision", "root"],
+      "properties": {
+        "revision": { "type": "string", "minLength": 1 },
+        "root": { "$ref": "#/definitions/taskNode" },
+        "updated_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "terminalSession": {
+      "type": "object",
+      "description": "A persistent human Shell/PTY session. Each tab is a real process/session; never one shared command buffer.",
+      "additionalProperties": false,
+      "required": ["id", "name", "executable", "cwd", "status", "cols", "rows", "created_at"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^shell_[A-Za-z0-9_-]+$" },
+        "name": { "type": "string" },
+        "executable": { "type": "string" },
+        "cwd": { "type": "string" },
+        "status": { "type": "string", "enum": ["running", "exited", "closed"] },
+        "cols": { "type": "integer", "minimum": 2, "maximum": 500 },
+        "rows": { "type": "integer", "minimum": 1, "maximum": 500 },
+        "created_at": { "type": "string", "format": "date-time" },
+        "last_exit_code": { "type": ["integer", "null"] }
+      }
+    },
+    "artifactKind": {
+      "type": "string",
+      "enum": ["image", "table", "text", "file"]
+    },
+    "artifactRef": {
+      "type": "object",
+      "description": "Bounded runtime outputs stored outside normal model context under <workspace>/.pipyter/pigent/artifacts/. IDs are unguessable and scoped to workspace/session authorization.",
+      "additionalProperties": false,
+      "required": ["id", "kind", "mime", "size", "created_at", "hash"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^figure_[A-Za-z0-9]+$|^artifact_[A-Za-z0-9_-]+$" },
+        "kind": { "$ref": "#/definitions/artifactKind" },
+        "mime": { "type": "string" },
+        "size": { "type": "integer", "minimum": 0 },
+        "created_at": { "type": "string", "format": "date-time" },
+        "hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "width": { "type": "integer", "minimum": 0 },
+        "height": { "type": "integer", "minimum": 0 },
+        "expires_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "workspaceContext": {
+      "type": "object",
+      "description": "Active workspace context published by the browser/runtime independently of prompts. Validated by Pipyter; never retargets an already-authorized mutation.",
+      "additionalProperties": false,
+      "required": ["type", "active_document"],
+      "properties": {
+        "type": { "const": "workspace.context" },
+        "active_document": { "type": "string" },
+        "document_revision": { "$ref": "pigent-tools.schema.json#/definitions/revision" },
+        "active_cell_id": { "type": "string" },
+        "selection": { "type": ["string", "null"] },
+        "active_kernel_id": { "type": "string" },
+        "selected_figure_id": { "type": ["string", "null"] }
+      }
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocolVersion", "sessionStatuses", "artifactKinds", "delegateProfiles"],
+  "properties": {
+    "protocolVersion": { "const": "0.1" },
+    "sessionStatuses": { "type": "array", "items": { "$ref": "#/definitions/sessionStatus" }, "uniqueItems": true, "minItems": 5, "maxItems": 5 },
+    "artifactKinds": { "type": "array", "items": { "$ref": "#/definitions/artifactKind" }, "uniqueItems": true, "minItems": 4, "maxItems": 4 },
+    "delegateProfiles": {
+      "type": "array",
+      "items": { "type": "string", "enum": ["analysis", "research", "review", "implementation"] },
+      "uniqueItems": true,
+      "minItems": 4,
+      "maxItems": 4,
+      "description": "Suggested product profiles. analysis/research/review are non-writing for Ask/Plan; implementation carries the full Auto tool set."
+    }
+  }
+}

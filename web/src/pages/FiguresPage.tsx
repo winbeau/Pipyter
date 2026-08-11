@@ -61,7 +61,7 @@ const formatStyle = (active: boolean): CSSProperties => ({
 
 export function FiguresPage() {
   const [selectedLayer, setSelectedLayer] = useState<Layer>('line1')
-  const [pilotOpen, setPilotOpen] = useState(false)
+  const [pigentOpen, setPigentOpen] = useState(false)
   const [frame, setFrame] = useState(true)
   const [tight, setTight] = useState(true)
   const [transparent, setTransparent] = useState(false)
@@ -71,13 +71,13 @@ export function FiguresPage() {
     <FiguresDesign
       selectedLineName={layerNames[selectedLayer]}
       selectedLineLabelStyle={{ color: '#96481C', fontWeight: 600, textTransform: 'none', letterSpacing: 'normal' }}
-      pilotOpen={pilotOpen}
-      pilotToggleStyle={{
+      pigentOpen={pigentOpen}
+      pigentToggleStyle={{
         display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8,
         fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
-        background: pilotOpen ? '#F2E1D2' : 'transparent',
-        color: pilotOpen ? '#96481C' : '#6E6656',
-        border: pilotOpen ? 'none' : '1px solid #E3DDCE',
+        background: pigentOpen ? '#F2E1D2' : 'transparent',
+        color: pigentOpen ? '#96481C' : '#6E6656',
+        border: pigentOpen ? 'none' : '1px solid #E3DDCE',
       }}
       layerLine1Style={layerStyle(selectedLayer === 'line1')}
       layerLine2Style={layerStyle(selectedLayer === 'line2')}
@@ -94,7 +94,7 @@ export function FiguresPage() {
       formatPngStyle={formatStyle(format === 'png')}
       formatSvgStyle={formatStyle(format === 'svg')}
       formatPdfStyle={formatStyle(format === 'pdf')}
-      togglePilot={() => setPilotOpen((open) => !open)}
+      togglePigent={() => setPigentOpen((open) => !open)}
       selectLine1={() => setSelectedLayer('line1')}
       selectLine2={() => setSelectedLayer('line2')}
       selectScatter={() => setSelectedLayer('scatter')}

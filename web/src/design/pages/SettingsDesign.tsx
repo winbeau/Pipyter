@@ -125,7 +125,7 @@ export function SettingsDesign({
             {"Figures"}
           </div>
           <div style={navAgentStyle} onClick={goAgent}>
-            {"Agent"}
+            {"Pigent"}
           </div>
           <div style={navProvidersStyle} onClick={goProviders}>
             {"AI Providers"}
@@ -396,30 +396,30 @@ export function SettingsDesign({
             {isAgent && (
               <>
                 <div style={{ fontSize: "20px", fontWeight: "600", marginBottom: "24px" } as CSSProperties}>
-                  {"Agent"}
+                  {"Pigent"}
                 </div>
                 <div style={{ marginBottom: "16px" } as CSSProperties}>
                   <div style={{ fontSize: "12.5px", color: "var(--text-2)", marginBottom: "6px" } as CSSProperties}>
                     {"默认模型"}
                   </div>
                   <div style={{ padding: "9px 12px", border: "1px solid var(--border)", borderRadius: "8px", fontSize: "12.5px", display: "flex", justifyContent: "space-between" } as CSSProperties}>
-                    {"Pilot Reasoning"}
+                    {"Pigent active model"}
                     <ChevronDown size={11} strokeWidth={1.7} color="var(--text-3)" aria-hidden="true" />
                   </div>
                 </div>
                 <div style={{ marginBottom: "20px" } as CSSProperties}>
                   <div style={{ fontSize: "12.5px", color: "var(--text-2)", marginBottom: "6px" } as CSSProperties}>
-                    {"推理模式"}
+                    {"运行模式"}
                   </div>
                   <div style={{ display: "flex", gap: "6px" } as CSSProperties}>
                     <div style={{ flex: "1", textAlign: "center", padding: "9px", borderRadius: "8px", border: "1px solid var(--border)", fontSize: "12.5px", color: "var(--text-2)" } as CSSProperties}>
-                      {"快速"}
-                    </div>
-                    <div style={{ flex: "1", textAlign: "center", padding: "9px", borderRadius: "8px", background: "var(--accent-soft)", color: "var(--accent-dark)", fontSize: "12.5px", fontWeight: "600" } as CSSProperties}>
-                      {"平衡"}
+                      {"Ask"}
                     </div>
                     <div style={{ flex: "1", textAlign: "center", padding: "9px", borderRadius: "8px", border: "1px solid var(--border)", fontSize: "12.5px", color: "var(--text-2)" } as CSSProperties}>
-                      {"深度"}
+                      {"Plan"}
+                    </div>
+                    <div style={{ flex: "1", textAlign: "center", padding: "9px", borderRadius: "8px", background: "var(--pigent-soft)", color: "var(--pigent-dark)", fontSize: "12.5px", fontWeight: "600" } as CSSProperties}>
+                      {"Auto"}
                     </div>
                   </div>
                 </div>
@@ -568,7 +568,7 @@ export function SettingsDesign({
                   {"Permissions"}
                 </div>
                 <div style={{ fontSize: "12.5px", color: "var(--text-2)", marginBottom: "20px" } as CSSProperties}>
-                  {"控制 Pilot Agent 在此 Workspace 中可以执行的操作"}
+                  {"Ask 与 Plan 禁止修改或执行；Auto 使用当前 Runtime 用户权限"}
                 </div>
                 <div style={{ border: "1px solid var(--border)", borderRadius: "10px", overflow: "hidden" } as CSSProperties}>
                   <div style={{ display: "flex", alignItems: "center", padding: "13px 16px", borderBottom: "1px solid var(--border)" } as CSSProperties}>

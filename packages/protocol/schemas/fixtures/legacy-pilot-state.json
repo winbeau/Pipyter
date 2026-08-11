@@ -1,0 +1,9 @@
+{
+  "name": "legacy-pilot-state",
+  "description": "Legacy session state containing pilot mode fields. The migration loader maps mode/requested_mode/effective_mode pilot->auto exactly once and then removes requested_mode/effective_mode; new schemas reject pilot.",
+  "mode": "pilot",
+  "requested_mode": "pilot",
+  "effective_mode": "pilot",
+  "session_id": "pigent_sess_old_01",
+  "title": "旧 Pilot 会话"
+}

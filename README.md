@@ -9,7 +9,7 @@ AI-native scientific workspace built around Jupyter, remote compute, and agent-a
 - `AGENT.md` — architecture and contribution guidance.
 - `draft.md` — current product and interaction draft.
 - `engines/` — ignored local source/reference checkouts; normal build/runtime code must not depend on them.
-- `packages/pigent/` — planned tracked first-party Pigent AI/Agent/runtime/host source copied from the local BeauPi tree and then maintained directly in Pipyter.
+- `packages/pigent/` — tracked first-party Pigent AI/Agent/runtime/host source maintained directly in Pipyter.
 
 ## Architecture plans
 
@@ -32,7 +32,7 @@ Pigent model/API configuration uses exactly:
 ~/.config/pipyter/pigent/auth.json
 ```
 
-`settings.json` selects providers/models and stores non-secret model/protocol definitions; `auth.json` stores provider API addresses plus API-key/OAuth credentials. Pipyter does not use `models.json`, `models-store.json`, or automatically inherit `~/.beaupi/` configuration. `XDG_CONFIG_HOME` is respected when set.
+`settings.json` selects providers/models and stores non-secret model/protocol definitions; `auth.json` stores API-key/OAuth credentials. Pipyter does not use `models.json`, `models-store.json`, or automatically inherit `~/.beaupi/` configuration. `XDG_CONFIG_HOME` is respected when set.
 
 ## Web development
 

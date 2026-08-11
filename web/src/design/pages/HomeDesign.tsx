@@ -74,7 +74,7 @@ export function HomeDesign() {
                   <circle cx="10" cy="10" r="1.6" fill="currentColor" stroke="none" />
                 </svg>
                 <span style={{ fontSize: "13px", fontWeight: "500" } as CSSProperties}>
-                  {"向 Pilot 下达任务"}
+                  {"向 Pigent 下达任务"}
                 </span>
               </div>
             </div>
@@ -311,7 +311,7 @@ export function HomeDesign() {
             </div>
             <div>
               <span style={{ fontWeight: "500" } as CSSProperties}>
-                {"Pilot"}
+                {"Pigent"}
               </span>
               {" 完成了任务「调查稀疏度骤降」"}
               <div style={{ color: "var(--text-3)", fontSize: "11px", marginTop: "1px" } as CSSProperties}>

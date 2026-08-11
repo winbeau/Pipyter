@@ -31,6 +31,7 @@ dependencies = [
   "httpx>=0.27,<1",
   "jupyter-client>=8.6,<9",
   "jupyterlab>=4.4,<5",
+  "nbformat>=5.10,<6",
   "pydantic>=2.8,<3",
   "tomli>=2; python_version < '3.11'",
   "uvicorn[standard]>=0.30,<1",
@@ -45,6 +46,7 @@ dev = [
 
 [project.scripts]
 pipyter = "pipyter.cli.main:main"
+pigent = "pipyter.pigent.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/winbeau/Pipyter"
@@ -54,10 +56,27 @@ Issues = "https://github.com/winbeau/Pipyter/issues"
 [tool.hatch.version]
 path = "src/pipyter/_version.py"
 
+[tool.hatch.build]
+exclude = [
+  "**/__pycache__/**",
+  "**/.pytest_cache/**",
+  "**/*.pyc",
+]
+
+[tool.hatch.build.hooks.custom]
+path = "scripts/hatch_build.py"
+
 [tool.hatch.build.targets.sdist]
+exclude = [
+  "/packages/pigent/node_modules",
+  "/packages/pigent/**/dist",
+  "/packages/pigent/**/coverage",
+]
 include = [
   "/src",
-  "/packages/protocol/schemas",
+  "/packages/protocol",
+  "/packages/pigent",
+  "/scripts/hatch_build.py",
   "/README.md",
   "/LICENSE",
   "/UPSTREAM.md",

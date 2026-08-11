@@ -17,6 +17,9 @@ dist/
 # Built web portal served by the runtime API
 src/pipyter/static/
 
+# Generated release payload
+/build/
+
 # Python cache
 __pycache__/
 *.py[cod]

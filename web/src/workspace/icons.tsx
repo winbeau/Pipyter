@@ -89,7 +89,7 @@ export const IconChevronsUp = lucide(ChevronsUp)
 export const IconChevronsDown = lucide(ChevronsDown)
 export const IconCollapse = lucide(PanelLeftClose)
 export const IconExpand = lucide(PanelLeftOpen)
-export const IconPilot = lucide(Orbit)
+export const IconPigent = lucide(Orbit)
 export const IconDownload = lucide(Download)
 export const IconPencil = lucide(Pencil)
 

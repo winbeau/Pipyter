@@ -27,11 +27,6 @@ export type CellModel = {
   outputs: KernelOutput[]
 }
 
-export type TerminalLine = {
-  text: string
-  kind: 'in' | 'out' | 'err' | 'sys'
-}
-
 export type WorkspaceState = {
   mode: Mode
   workspace: WorkspaceSummary | null
@@ -54,8 +49,6 @@ export type WorkspaceState = {
   leftTab: LeftTab
   leftOpen: boolean
   bottomOpen: boolean
-  terminalLines: TerminalLine[]
-  terminalHistory: string[]
   dialog: DialogState | null
   toast: string | null
   lastError: string | null

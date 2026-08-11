@@ -1,0 +1,5 @@
+import { ExternalLink, Hand } from 'lucide-react'
+import type { PigentInteraction } from '../types'
+export function InteractionCard({ interaction, density = 'comfortable', onOpenShell }: { interaction: PigentInteraction; density?: 'comfortable' | 'compact'; onOpenShell(id?: string): void }) {
+  return <article className={`pigent-card pigent-interaction-card is-${density}`}><header><span><Hand size={15} />需要你的操作</span><small>{interaction.kind}</small></header><p>{interaction.summary}</p>{interaction.command_preview && <code>{interaction.command_preview}</code>}<div className="pigent-card-actions">{interaction.choices.includes('open_shell') && <button type="button" className="is-primary" onClick={() => onOpenShell(interaction.shell_session_id)}><ExternalLink size={12} />打开 Shell</button>}{interaction.choices.includes('cancel') && <button type="button">取消</button>}{interaction.choices.includes('allow_once') && <button type="button">允许一次</button>}{interaction.choices.includes('reject') && <button type="button">拒绝</button>}</div></article>
+}

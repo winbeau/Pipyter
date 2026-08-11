@@ -1,0 +1,71 @@
+{
+  "name": "golden-session-state",
+  "description": "Cross-language golden fixture: a complete PigentSession record with mode state, execution identity, tasks snapshot and model snapshot. All optional/defaulted fields are explicit so Python round-trips byte-for-byte.",
+  "protocol_version": "0.1",
+  "session": {
+    "id": "pigent_sess_01",
+    "account_id": "account_01",
+    "project_id": "project_01",
+    "workspace_id": "workspace_01",
+    "node_id": "h100-server",
+    "mode": "auto",
+    "approval_preference": "automatic",
+    "execution_identity": {
+      "username": "researcher",
+      "uid": 1000,
+      "home": "/home/researcher",
+      "workspace": "/home/researcher/project"
+    },
+    "status": "active",
+    "title": "修复稀疏度骤降渲染",
+    "created_at": "2025-01-01T00:00:00Z",
+    "last_activity_at": "2025-01-01T00:05:00Z",
+    "active_document": {
+      "path": "analysis.ipynb",
+      "revision": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "cell_id": "cell-a1"
+    },
+    "active_kernel_id": "kernel_abc",
+    "model": {
+      "provider": "my-provider",
+      "model": "my-model"
+    },
+    "tasks_snapshot": {
+      "revision": "tasks-rev-3",
+      "root": {
+        "id": "sparsity_drop_investigation",
+        "title": "调查稀疏度骤降",
+        "status": "running",
+        "depends_on": [],
+        "completion_criteria": [],
+        "children": [
+          {
+            "id": "locate",
+            "title": "定位骤降层区间",
+            "status": "done",
+            "depends_on": [],
+            "completion_criteria": [],
+            "children": []
+          },
+          {
+            "id": "fix",
+            "title": "调整滑动窗口并重新运行",
+            "status": "running",
+            "depends_on": ["locate"],
+            "completion_criteria": [],
+            "children": []
+          },
+          {
+            "id": "verify",
+            "title": "验证相邻层稀疏度一致性",
+            "status": "pending",
+            "depends_on": ["fix"],
+            "completion_criteria": [],
+            "children": []
+          }
+        ]
+      },
+      "updated_at": "2025-01-01T00:04:00Z"
+    }
+  }
+}

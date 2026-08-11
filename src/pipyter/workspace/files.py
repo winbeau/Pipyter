@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +12,26 @@ from ..exceptions import UnsafePathError
 from ..protocol.models import FileEntry
 
 MAX_TEXT_BYTES = 8 * 1024 * 1024
+
+
+def content_revision(raw: bytes) -> str:
+    """Return the shared opaque revision used by structured file operations."""
+    return "sha256:" + hashlib.sha256(raw).hexdigest()
+
+
+def atomic_write_bytes(path: Path, raw: bytes) -> None:
+    """Atomically replace one target while preserving normal OS permissions/errors."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(raw)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
 
 
 def resolve_workspace_path(root: Path, relative: str | os.PathLike[str] = ".") -> Path:
@@ -67,8 +89,7 @@ def read_text(root: Path, relative: str) -> str:
 
 def write_text(root: Path, relative: str, content: str) -> Path:
     path = resolve_workspace_path(root, relative)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
+    atomic_write_bytes(path, content.encode("utf-8"))
     return path
 
 

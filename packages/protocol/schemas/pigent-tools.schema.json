@@ -1,0 +1,625 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://pipyter.icthub.top/schemas/pigent-tools.schema.json",
+  "title": "Pigent tool contracts",
+  "description": "Frozen Pigent v0.1 public tool catalog, trusted request context, and result/error envelopes (docs/plans/pigent-v0.1/01-tool-contracts.md).",
+  "definitions": {
+    "protocolVersion": {
+      "const": "0.1",
+      "description": "PIGENT_PROTOCOL_VERSION. Any incompatible public contract change bumps this value."
+    },
+    "toolName": {
+      "type": "string",
+      "enum": ["read", "view", "write", "update", "bash", "notebook", "kernel", "inspect", "tasks", "delegate"],
+      "description": "The exactly ten LLM-visible Pigent tools. No aliases are advertised: no watch, no edit, no list/grep/find/workflow/background/monitor/remote tools."
+    },
+    "layer": {
+      "type": "string",
+      "enum": ["workspace", "notebook", "orchestration"]
+    },
+    "toolCatalog": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["read", "view", "write", "update", "bash", "notebook", "kernel", "inspect", "tasks", "delegate"],
+      "properties": {
+        "read": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["layer", "mutates"],
+          "properties": {
+            "layer": { "const": "workspace" },
+            "mutates": { "const": false },
+            "actions": { "type": "array", "items": { "const": "file" }, "uniqueItems": true },
+            "owner": { "const": "file service" }
+          }
+        },
+        "view": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["layer", "mutates"],
+          "properties": {
+            "layer": { "const": "workspace" },
+            "mutates": { "const": false },
+            "actions": { "type": "array", "items": { "const": "visual" }, "uniqueItems": true },
+            "owner": { "const": "file/artifact service" }
+          }
+        },
+        "write": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["layer", "mutates"],
+          "properties": {
+            "layer": { "const": "workspace" },
+            "mutates": { "const": true },
+            "actions": { "type": "array", "items": { "const": "file" }, "uniqueItems": true },
+            "owner": { "const": "file service" }
+          }
+        },
+        "update": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["layer", "mutates"],
+          "properties": {
+            "layer": { "const": "workspace" },
+            "mutates": { "const": true },
+            "actions": { "type": "array", "items": { "const": "file" }, "uniqueItems": true },
+            "owner": { "const": "file service" }
+          }
+        },
+        "bash": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["layer", "mutates"],
+          "properties": {
+            "layer": { "const": "workspace" },
+            "mutates": { "const": true, "description": "Potentially mutating; runs with runtime OS user authority in Auto." },
+            "actions": { "type": "array", "items": { "const": "shell" }, "uniqueItems": true },
+            "owner": { "const": "terminal service" }
+          }
+        },
+        "notebook": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["layer", "mutates"],
+          "properties": {
+            "layer": { "const": "notebook" },
+            "mutates": { "const": true, "description": "Depends on action." },
+            "actions": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": ["read_cell", "update_cell", "insert_cell", "delete_cell", "move_cell", "run_cell", "add_markdown", "clear_output"]
+              },
+              "uniqueItems": true,
+              "minItems": 8,
+              "maxItems": 8
+            },
+            "owner": { "const": "notebook service" }
+          }
+        },
+        "kernel": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["layer", "mutates"],
+          "properties": {
+            "layer": { "const": "notebook" },
+            "mutates": { "const": true, "description": "Depends on action." },
+            "actions": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": ["status", "execute", "interrupt", "restart", "shutdown"]
+              },
+              "uniqueItems": true,
+              "minItems": 5,
+              "maxItems": 5
+            },
+            "owner": { "const": "kernel service" }
+          }
+        },
+        "inspect": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["layer", "mutates"],
+          "properties": {
+            "layer": { "const": "notebook" },
+            "mutates": { "const": false, "description": "No intended mutation." },
+            "actions": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": ["variables", "variable", "dataframe", "figure", "object"]
+              },
+              "uniqueItems": true,
+              "minItems": 5,
+              "maxItems": 5
+            },
+            "owner": { "const": "inspection service" }
+          }
+        },
+        "tasks": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["layer", "mutates"],
+          "properties": {
+            "layer": { "const": "orchestration" },
+            "mutates": { "const": true, "description": "Yes, structured state." },
+            "actions": {
+              "type": "array",
+              "items": { "type": "string", "enum": ["get", "replace", "patch"] },
+              "uniqueItems": true,
+              "minItems": 3,
+              "maxItems": 3
+            },
+            "owner": { "const": "Dynamic Task adapter" }
+          }
+        },
+        "delegate": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["layer", "mutates"],
+          "properties": {
+            "layer": { "const": "orchestration" },
+            "mutates": { "const": true, "description": "Child-dependent." },
+            "actions": { "type": "array", "items": { "const": "subagent" }, "uniqueItems": true },
+            "owner": { "const": "AgentPool adapter" }
+          }
+        }
+      }
+    },
+    "errorCode": {
+      "type": "string",
+      "enum": [
+        "invalid_request",
+        "invalid_path",
+        "permission_denied",
+        "not_found",
+        "unsupported_media",
+        "too_large",
+        "revision_conflict",
+        "mode_denied",
+        "confirmation_required",
+        "kernel_unavailable",
+        "kernel_busy",
+        "execution_timeout",
+        "cancelled",
+        "internal_error",
+        "document_dirty",
+        "output_persist_conflict",
+        "kernel_dead",
+        "model_configuration_required",
+        "service_unavailable"
+      ]
+    },
+    "revision": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "description": "Opaque content revision derived from raw bytes. Stale expected revisions fail with revision_conflict instead of silently overwriting."
+    },
+    "toolError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "retryable"],
+      "properties": {
+        "code": { "$ref": "#/definitions/errorCode" },
+        "message": { "type": "string" },
+        "retryable": { "type": "boolean" },
+        "details": { "type": "object", "additionalProperties": true }
+      }
+    },
+    "toolResult": {
+      "type": "object",
+      "description": "Versioned envelope returned by every Python-backed tool. The normal tool content remains a concise text/image representation for the model.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "required": ["version", "ok", "summary", "data", "artifacts", "revisions", "warnings"],
+          "properties": {
+            "version": { "const": 1 },
+            "ok": { "const": true },
+            "summary": { "type": "string" },
+            "data": { "type": "object", "additionalProperties": true },
+            "artifacts": {
+              "type": "array",
+              "items": { "$ref": "pigent-session.schema.json#/definitions/artifactRef" }
+            },
+            "revisions": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["before", "after"],
+              "properties": {
+                "before": { "$ref": "#/definitions/revision" },
+                "after": { "$ref": "#/definitions/revision" }
+              }
+            },
+            "warnings": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["version", "ok", "summary", "error", "warnings"],
+          "properties": {
+            "version": { "const": 1 },
+            "ok": { "const": false },
+            "summary": { "type": "string" },
+            "error": { "$ref": "#/definitions/toolError" },
+            "warnings": { "type": "array", "items": { "type": "string" } }
+          }
+        }
+      ]
+    },
+    "toolRequestContext": {
+      "type": "object",
+      "description": "Trusted context injected by the Pigent host before dispatch. The model supplies only public parameters and can never override these fields.",
+      "additionalProperties": false,
+      "required": ["protocol_version", "tool_call_id", "session_id", "workspace_id", "mode"],
+      "properties": {
+        "protocol_version": { "$ref": "#/definitions/protocolVersion" },
+        "tool_call_id": { "type": "string", "minLength": 1 },
+        "session_id": { "type": "string", "minLength": 1 },
+        "workspace_id": { "type": "string", "minLength": 1 },
+        "mode": { "$ref": "pigent-modes.schema.json#/definitions/mode" },
+        "active_document": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["path", "revision", "cell_id"],
+          "properties": {
+            "path": { "type": "string" },
+            "revision": { "$ref": "#/definitions/revision" },
+            "cell_id": { "type": "string" }
+          }
+        },
+        "active_kernel_id": { "type": "string" }
+      }
+    },
+    "viewSource": {
+      "type": "object",
+      "description": "Discriminated source for the view tool: files, cell outputs and in-memory figures stay one tool without ambiguous optional fields.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "required": ["kind", "path"],
+          "properties": {
+            "kind": { "const": "file" },
+            "path": { "type": "string" }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["kind", "notebook_path", "cell_id", "output_index"],
+          "properties": {
+            "kind": { "const": "cell_output" },
+            "notebook_path": { "type": "string" },
+            "cell_id": { "type": "string" },
+            "output_index": { "type": "integer", "minimum": 0 }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["kind", "figure_id"],
+          "properties": {
+            "kind": { "const": "figure" },
+            "figure_id": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "updateStrategy": {
+      "type": "object",
+      "description": "update replaces the old public edit tool. Two strategies share one tool: exact replacements or a single-file unified diff.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "required": ["path", "strategy", "expected_revision", "edits"],
+          "properties": {
+            "path": { "type": "string" },
+            "strategy": { "const": "replace" },
+            "expected_revision": { "anyOf": [{ "$ref": "#/definitions/revision" }, { "type": "null" }] },
+            "edits": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["old_text", "new_text"],
+                "properties": {
+                  "old_text": { "type": "string", "description": "Must match exactly once in the original content." },
+                  "new_text": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["path", "strategy", "expected_revision", "patch"],
+          "properties": {
+            "path": { "type": "string" },
+            "strategy": { "const": "patch" },
+            "expected_revision": { "anyOf": [{ "$ref": "#/definitions/revision" }, { "type": "null" }] },
+            "patch": { "type": "string", "description": "Single-file unified diff in v0.1." }
+          }
+        }
+      ]
+    },
+    "bashRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command"],
+      "properties": {
+        "command": { "type": "string", "minLength": 1 },
+        "cwd": { "type": "string", "description": "Relative cwd starts from the active workspace; Auto may use any absolute/parent cwd available to the runtime OS user." },
+        "timeout": { "type": "number", "minimum": 1, "description": "Seconds; bounded by runtime policy." }
+      }
+    },
+    "notebookAction": {
+      "type": "object",
+      "description": "One tool with exactly eight public actions. cell_id is the primary address; index is display metadata.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "required": ["action", "path", "cell_id"],
+          "properties": {
+            "action": { "const": "read_cell" },
+            "path": { "type": "string" },
+            "cell_id": { "type": "string" },
+            "include_outputs": { "type": "boolean", "default": true }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["action", "path", "cell_id", "expected_revision"],
+          "properties": {
+            "action": { "const": "update_cell" },
+            "path": { "type": "string" },
+            "cell_id": { "type": "string" },
+            "expected_revision": { "$ref": "#/definitions/revision" },
+            "source": { "type": "string" },
+            "cell_type": { "type": "string", "enum": ["code", "markdown"] },
+            "clear_outputs": { "type": "boolean", "default": false }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["action", "path", "expected_revision", "cell_type", "source", "position"],
+          "properties": {
+            "action": { "const": "insert_cell" },
+            "path": { "type": "string" },
+            "expected_revision": { "$ref": "#/definitions/revision" },
+            "cell_type": { "type": "string", "enum": ["code", "markdown"] },
+            "source": { "type": "string" },
+            "position": { "$ref": "#/definitions/cellPosition" }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["action", "path", "cell_id", "expected_revision"],
+          "properties": {
+            "action": { "const": "delete_cell" },
+            "path": { "type": "string" },
+            "cell_id": { "type": "string" },
+            "expected_revision": { "$ref": "#/definitions/revision" }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["action", "path", "cell_id", "position", "expected_revision"],
+          "properties": {
+            "action": { "const": "move_cell" },
+            "path": { "type": "string" },
+            "cell_id": { "type": "string" },
+            "position": { "$ref": "#/definitions/cellPosition" },
+            "expected_revision": { "$ref": "#/definitions/revision" }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["action", "path", "cell_id", "expected_revision"],
+          "properties": {
+            "action": { "const": "run_cell" },
+            "path": { "type": "string" },
+            "cell_id": { "type": "string" },
+            "expected_revision": { "$ref": "#/definitions/revision" },
+            "timeout": { "type": "number", "minimum": 1 },
+            "save_outputs": { "type": "boolean", "default": true }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["action", "path", "expected_revision", "source", "position"],
+          "properties": {
+            "action": { "const": "add_markdown" },
+            "path": { "type": "string" },
+            "expected_revision": { "$ref": "#/definitions/revision" },
+            "source": { "type": "string" },
+            "position": { "$ref": "#/definitions/cellPosition" }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["action", "path", "expected_revision"],
+          "properties": {
+            "action": { "const": "clear_output" },
+            "path": { "type": "string" },
+            "cell_id": { "type": "string" },
+            "expected_revision": { "$ref": "#/definitions/revision" },
+            "scope": { "type": "string", "enum": ["cell", "all"], "default": "cell" }
+          }
+        }
+      ]
+    },
+    "cellPosition": {
+      "type": "object",
+      "description": "Insertion/move location computed against stable cell IDs, never stale indices.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "required": ["kind", "cell_id"],
+          "properties": {
+            "kind": { "type": "string", "enum": ["before", "after"] },
+            "cell_id": { "type": "string" }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": {
+            "kind": { "type": "string", "enum": ["start", "end"] }
+          }
+        }
+      ]
+    },
+    "kernelAction": {
+      "type": "object",
+      "description": "One tool for the current Jupyter kernel bound to the active notebook. The model never chooses an arbitrary global kernel ID.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "required": ["action"],
+          "properties": { "action": { "const": "status" } }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["action", "code"],
+          "properties": {
+            "action": { "const": "execute" },
+            "code": { "type": "string", "minLength": 1 },
+            "timeout": { "type": "number", "minimum": 1 },
+            "store_history": { "type": "boolean", "default": false }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["action"],
+          "properties": { "action": { "const": "interrupt" } }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["action"],
+          "properties": { "action": { "const": "restart" } }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["action"],
+          "properties": { "action": { "const": "shutdown" } }
+        }
+      ]
+    },
+    "inspectAction": {
+      "type": "object",
+      "description": "One tool with bounded runtime views. No pickle, no full tensor transfer, no unrestricted recursion.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "required": ["action"],
+          "properties": {
+            "action": { "const": "variables" },
+            "limit": { "type": "integer", "minimum": 1, "maximum": 500 }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["action", "name"],
+          "properties": {
+            "action": { "const": "variable" },
+            "name": { "type": "string", "minLength": 1 },
+            "include_repr": { "type": "boolean", "default": false }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["action", "name"],
+          "properties": {
+            "action": { "const": "dataframe" },
+            "name": { "type": "string", "minLength": 1 },
+            "rows": { "type": "integer", "minimum": 1, "maximum": 100 },
+            "columns": { "type": "integer", "minimum": 1, "maximum": 200 },
+            "null_counts": { "type": "boolean", "default": false }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["action"],
+          "properties": {
+            "action": { "const": "figure" },
+            "name": { "type": "string" },
+            "format": { "type": "string", "enum": ["png", "svg"] }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["action", "name"],
+          "properties": {
+            "action": { "const": "object" },
+            "name": { "type": "string", "minLength": 1 },
+            "include_repr": { "type": "boolean", "default": false }
+          }
+        }
+      ]
+    },
+    "tasksAction": {
+      "type": "object",
+      "description": "Public adapter over the versioned Dynamic Task runtime. Keep compare-and-swap revisions; only the Coordinator can change structure.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "required": ["action"],
+          "properties": { "action": { "const": "get" } }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["action", "root"],
+          "properties": {
+            "action": { "const": "replace" },
+            "root": { "$ref": "pigent-session.schema.json#/definitions/taskNode" },
+            "expected_revision": { "type": ["string", "null"] }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["action", "patches"],
+          "properties": {
+            "action": { "const": "patch" },
+            "patches": { "type": "array", "minItems": 1, "items": { "type": "object", "additionalProperties": true } },
+            "expected_revision": { "type": ["string", "null"] }
+          }
+        }
+      ]
+    },
+    "taskStatus": {
+      "type": "string",
+      "enum": ["pending", "running", "done", "blocked", "failed"],
+      "description": "Pigent task statuses; engine active/completed map to running/done."
+    },
+    "delegateRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["task", "agent"],
+      "properties": {
+        "task": { "type": "string", "minLength": 1 },
+        "agent": {
+          "type": "string",
+          "enum": ["analysis", "research", "review", "implementation"],
+          "description": "Configured profile ID. Ask/Plan permit non-writing profiles only; Auto may assign implementation."
+        },
+        "timeout": { "type": "number", "minimum": 1 }
+      }
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocolVersion", "toolCatalog", "errorCodes", "resultEnvelope", "contextEnvelope"],
+  "properties": {
+    "protocolVersion": { "$ref": "#/definitions/protocolVersion" },
+    "toolCatalog": { "$ref": "#/definitions/toolCatalog" },
+    "errorCodes": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/errorCode" },
+      "uniqueItems": true,
+      "minItems": 19,
+      "maxItems": 19
+    },
+    "resultEnvelope": { "$ref": "#/definitions/toolResult" },
+    "contextEnvelope": { "$ref": "#/definitions/toolRequestContext" }
+  }
+}

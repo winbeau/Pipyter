@@ -16,6 +16,8 @@ from ..auth.device import login_local, login_with_device_flow
 from ..config import load_credentials
 from ..exceptions import PipyterError, ProjectNotLinkedError
 from ..runtime.manager import RuntimeManager
+from ..pigent.config import PigentConfigError, PigentConfigStore
+from ..pigent.resources import diagnostics as pigent_diagnostics
 from ..workspace.project import find_project, link_project, load_project
 
 DEFAULT_CONTROL_URL = "https://pipyter.icthub.top"
@@ -158,8 +160,31 @@ def _doctor(args: argparse.Namespace) -> int:
         checks["workspace_writable"] = False
     checks["credentials_present"] = load_credentials() is not None
     checks["api_port_8765_free"] = _port_free(8765)
+    pigent = pigent_diagnostics(verify_hashes=True)
+    checks["pigent_payload_ok"] = bool(pigent["payload_ok"])
+    checks["pigent_payload_error"] = pigent.get("payload_error") or ""
+    checks["pigent_node_ok"] = bool(pigent["node"]["ok"])
+    checks["pigent_node_required"] = str(pigent["node"]["required"])
+    checks["pigent_node_version"] = str(pigent["node"].get("version") or "")
+    checks["pigent_node_finding"] = str(pigent["node"]["message"])
+    try:
+        config = PigentConfigStore()
+        checks["pigent_config_directory"] = str(config.directory)
+        checks["pigent_config_initialized"] = config.settings_path.exists() and config.auth_path.exists()
+        if checks["pigent_config_initialized"]:
+            config.read_settings()
+            config.read_auth()
+        checks["pigent_config_ok"] = True
+    except PigentConfigError as error:
+        checks["pigent_config_ok"] = False
+        checks["pigent_config_error"] = str(error)
     print(json.dumps(checks, indent=2))
-    failed = [key for key, value in checks.items() if key.endswith(("_ok", "_importable", "_linked", "_writable")) and value is False]
+    failed = [
+        key for key, value in checks.items()
+        if not key.startswith("pigent_")
+        and key.endswith(("_ok", "_importable", "_linked", "_writable"))
+        and value is False
+    ]
     return 1 if failed else 0
 
 
