@@ -1,0 +1,31 @@
+# Python package and CLI
+
+## Package
+
+- Root `pyproject.toml` uses `hatchling` and a `src/pipyter` layout.
+- Runtime dependencies include FastAPI/Uvicorn, HTTPX, JupyterLab and Jupyter Client.
+- The wheel contains Python sources and protocol schemas required by the runtime.
+
+## CLI commands
+
+- `pipyter auth login`: device-flow client contract and local development credential mode.
+- `pipyter project link [PATH]`: create `.pipyter/project.toml` without storing secrets.
+- `pipyter project show [PATH]`: resolve the nearest project binding.
+- `pipyter up [PATH]`: start Runtime API and JupyterLab processes and persist state.
+- `pipyter down [PATH]`: terminate persisted runtime processes safely.
+- `pipyter status [PATH]`: display workspace/runtime state.
+- `pipyter doctor [PATH]`: inspect Python, JupyterLab, project binding, directories and ports.
+- `pipyter serve [PATH]`: run only the Runtime API for development.
+
+## Persistence
+
+- Secret credentials: `~/.config/pipyter/credentials.json`, mode `0600`.
+- Project metadata: `<project>/.pipyter/project.toml`.
+- Runtime state: `<project>/.pipyter/runtime.json`.
+- Runtime logs: `<project>/.pipyter/logs/`.
+
+## Safety
+
+- Never put access tokens in project metadata or command-line URLs.
+- Resolve and validate all requested paths under the linked project root.
+- Refuse stale or foreign PID termination.

@@ -1,0 +1,12 @@
+[runtime]
+host = "127.0.0.1"
+api_port = 8765
+jupyter_port = 8888
+start_jupyter = true
+
+[workspace]
+show_hidden_files = false
+max_text_bytes = 8388608
+
+[control]
+server_url = "https://pipyter.icthub.top"

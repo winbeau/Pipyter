@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pipyter.icthub.top/schemas/runtime-message.schema.json",
+  "title": "Pipyter Runtime Message",
+  "type": "object",
+  "required": ["type", "request_id", "workspace_id", "payload"],
+  "properties": {
+    "type": {
+      "enum": [
+        "workspace.changed",
+        "file.changed",
+        "kernel.status",
+        "kernel.output",
+        "terminal.output",
+        "runtime.health"
+      ]
+    },
+    "request_id": { "type": "string" },
+    "workspace_id": { "type": "string" },
+    "payload": { "type": "object" }
+  },
+  "additionalProperties": false
+}

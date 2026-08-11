@@ -1,5 +1,5 @@
 import { useState, type CSSProperties } from 'react'
-import { WorkspaceDesign } from '../design/pages/WorkspaceDesign'
+import { WorkspaceApp } from '../workspace/WorkspaceApp'
 
 export function WorkspacePage() {
   const [pilotOpen, setPilotOpen] = useState(true)
@@ -15,7 +15,7 @@ export function WorkspacePage() {
   }
 
   return (
-    <WorkspaceDesign
+    <WorkspaceApp
       pilotOpen={pilotOpen}
       pilotCollapsed={!pilotOpen}
       pilotToggleStyle={pilotToggleStyle}

@@ -13,3 +13,10 @@ dist/
 
 # OS metadata
 .DS_Store
+
+# Built web portal served by the runtime API
+src/pipyter/static/
+
+# Python cache
+__pycache__/
+*.py[cod]
