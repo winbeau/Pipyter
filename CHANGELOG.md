@@ -2,7 +2,7 @@
 
 All notable changes to Pipyter are documented in this file.
 
-## [0.1.0] - 2025-08-11
+## [0.1.1] - 2025-08-11
 
 ### Added
 
@@ -36,3 +36,12 @@ All notable changes to Pipyter are documented in this file.
   no longer change cell height on hover.
 - Removed output collapse buttons and the notebook demo subtitle row.
 - Root-level folder navigation stops at the workspace root.
+
+## [0.1.0] - 2025-08-10
+
+### Added
+
+- Initial Pipyter release: project binding, credentials, Runtime API
+  (workspace / files / notebooks / kernels / terminals), CLI commands
+  (`auth`, `project`, `up`, `down`, `status`, `doctor`, `serve`), and the
+  Jupyter-style React Workspace portal.
