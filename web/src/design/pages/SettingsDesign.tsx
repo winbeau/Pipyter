@@ -1,4 +1,6 @@
 import type { CSSProperties } from 'react'
+import { ChevronDown } from 'lucide-react'
+import type { CodeThemeId, CodeThemeOption, WorkspaceDensity } from '../../appearance'
 
 export type SettingsDesignProps = {
   autosaveKnobStyle: CSSProperties
@@ -46,6 +48,11 @@ export type SettingsDesignProps = {
   isPermissions: boolean
   isProviders: boolean
   isWorkspace: boolean
+  codeTheme: CodeThemeId
+  codeThemeOptions: ReadonlyArray<CodeThemeOption>
+  density: WorkspaceDensity
+  onCodeThemeChange: (theme: CodeThemeId) => void
+  onDensityChange: (density: WorkspaceDensity) => void
 }
 
 export function SettingsDesign({
@@ -94,9 +101,14 @@ export function SettingsDesign({
   toggleCtxTerminal,
   toggleHidden,
   toggleIndexing,
+  codeTheme,
+  codeThemeOptions,
+  density,
+  onCodeThemeChange,
+  onDensityChange,
 }: SettingsDesignProps) {
   return (
-    <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column", minWidth: "0", fontFamily: "'Inter',sans-serif", "--bg": "#FAF7F2", "--surface": "#FFFFFF", "--surface-2": "#F1ECE2", "--border": "#E3DDCE", "--text": "#211C15", "--text-2": "#6E6656", "--text-3": "#A79C89", "--accent": "#C1622C", "--accent-soft": "#F2E1D2", "--accent-dark": "#96481C", "--dark-bg": "#1B1815", "--dark-surface": "#242019", "--dark-surface-2": "#2D281F", "--dark-border": "#3A342A", "--dark-text": "#EDE7DC", "--dark-text-2": "#A79C89", "--mono": "'IBM Plex Mono',monospace", background: "var(--bg)", color: "var(--text)" } as CSSProperties}>
+    <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column", minWidth: "0", fontFamily: "'Inter',sans-serif", "--bg": "#F7F6F3", "--surface": "#FFFFFF", "--surface-2": "#F7F6F3", "--border": "#EDECE9", "--text": "#37352F", "--text-2": "#787774", "--text-3": "#9B9A97", "--accent": "#2383E2", "--accent-soft": "#E3F2FD", "--accent-dark": "#0D47A1", "--dark-bg": "#1B1815", "--dark-surface": "#242019", "--dark-surface-2": "#2D281F", "--dark-border": "#3A342A", "--dark-text": "#EDE7DC", "--dark-text-2": "#A79C89", "--mono": "'IBM Plex Mono',monospace", background: "var(--bg)", color: "var(--text)" } as CSSProperties}>
       <div style={{ flex: "1", display: "flex", flexDirection: "row", minHeight: "0" } as CSSProperties}>
         {/* LEFT NAV */}
         <div style={{ width: "220px", flexShrink: "0", borderRight: "1px solid var(--border)", background: "var(--surface)", padding: "20px 14px", overflow: "auto" } as CSSProperties}>
@@ -147,9 +159,7 @@ export function SettingsDesign({
                   </div>
                   <div style={{ padding: "7px 12px", border: "1px solid var(--border)", borderRadius: "8px", fontSize: "12.5px", display: "flex", alignItems: "center", gap: "6px", flexShrink: "0", whiteSpace: "nowrap" } as CSSProperties}>
                     {"简体中文"}
-                    <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="var(--text-3)" strokeWidth="1.6">
-                      <path d="M4 6l4 4 4-4" />
-                    </svg>
+                    <ChevronDown size={11} strokeWidth={1.7} color="var(--text-3)" aria-hidden="true" />
                   </div>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 0", borderBottom: "1px solid var(--border)" } as CSSProperties}>
@@ -248,9 +258,7 @@ export function SettingsDesign({
                   </div>
                   <div style={{ padding: "9px 12px", border: "1px solid var(--border)", borderRadius: "8px", fontSize: "12.5px", display: "flex", justifyContent: "space-between" } as CSSProperties}>
                     {"Python 3.11 (venv)"}
-                    <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="var(--text-3)" strokeWidth="1.6">
-                      <path d="M4 6l4 4 4-4" />
-                    </svg>
+                    <ChevronDown size={11} strokeWidth={1.7} color="var(--text-3)" aria-hidden="true" />
                   </div>
                 </div>
                 <div style={{ fontSize: "12.5px", color: "var(--text-2)", marginBottom: "8px" } as CSSProperties}>
@@ -345,9 +353,7 @@ export function SettingsDesign({
                   </div>
                   <div style={{ padding: "9px 12px", border: "1px solid var(--border)", borderRadius: "8px", fontSize: "12.5px", display: "flex", justifyContent: "space-between" } as CSSProperties}>
                     {"IBM Plex Sans"}
-                    <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="var(--text-3)" strokeWidth="1.6">
-                      <path d="M4 6l4 4 4-4" />
-                    </svg>
+                    <ChevronDown size={11} strokeWidth={1.7} color="var(--text-3)" aria-hidden="true" />
                   </div>
                 </div>
                 <div style={{ marginBottom: "16px" } as CSSProperties}>
@@ -356,9 +362,7 @@ export function SettingsDesign({
                   </div>
                   <div style={{ padding: "9px 12px", border: "1px solid var(--border)", borderRadius: "8px", fontSize: "12.5px", display: "flex", justifyContent: "space-between" } as CSSProperties}>
                     {"NeurIPS 单栏 (3.25 in)"}
-                    <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="var(--text-3)" strokeWidth="1.6">
-                      <path d="M4 6l4 4 4-4" />
-                    </svg>
+                    <ChevronDown size={11} strokeWidth={1.7} color="var(--text-3)" aria-hidden="true" />
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: "12px", marginBottom: "16px" } as CSSProperties}>
@@ -400,9 +404,7 @@ export function SettingsDesign({
                   </div>
                   <div style={{ padding: "9px 12px", border: "1px solid var(--border)", borderRadius: "8px", fontSize: "12.5px", display: "flex", justifyContent: "space-between" } as CSSProperties}>
                     {"Pilot Reasoning"}
-                    <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="var(--text-3)" strokeWidth="1.6">
-                      <path d="M4 6l4 4 4-4" />
-                    </svg>
+                    <ChevronDown size={11} strokeWidth={1.7} color="var(--text-3)" aria-hidden="true" />
                   </div>
                 </div>
                 <div style={{ marginBottom: "20px" } as CSSProperties}>
@@ -630,44 +632,83 @@ export function SettingsDesign({
             )}
             {isAppearance && (
               <>
-                <div style={{ fontSize: "20px", fontWeight: "600", marginBottom: "24px" } as CSSProperties}>
+                <div style={{ fontSize: "20px", fontWeight: "600", marginBottom: "6px" } as CSSProperties}>
                   {"Appearance"}
                 </div>
-                <div style={{ marginBottom: "24px" } as CSSProperties}>
-                  <div style={{ fontSize: "12.5px", color: "var(--text-2)", marginBottom: "8px" } as CSSProperties}>
-                    {"主题"}
-                  </div>
-                  <div style={{ display: "flex", gap: "10px" } as CSSProperties}>
-                    <div style={{ padding: "8px 16px", borderRadius: "8px", background: "var(--text)", color: "var(--bg)", fontSize: "13px", fontWeight: "500" } as CSSProperties}>
-                      {"Light"}
-                    </div>
-                    <div style={{ padding: "8px 16px", borderRadius: "8px", border: "1px solid var(--border)", fontSize: "13px", color: "var(--text-3)" } as CSSProperties}>
-                      {"Dark · 即将推出"}
-                    </div>
-                    <div style={{ padding: "8px 16px", borderRadius: "8px", border: "1px solid var(--border)", fontSize: "13px", color: "var(--text-3)" } as CSSProperties}>
-                      {"System · 即将推出"}
-                    </div>
-                  </div>
+                <div style={{ fontSize: "12.5px", color: "var(--text-2)", marginBottom: "24px" } as CSSProperties}>
+                  {"编辑区沿用 JupyterLab CodeMirror 6，外层使用 Pipyter 的轻量交互样式。"}
                 </div>
-                <div style={{ marginBottom: "24px" } as CSSProperties}>
-                  <div style={{ fontSize: "12.5px", color: "var(--text-2)", marginBottom: "8px" } as CSSProperties}>
-                    {"字号"}
+                <div style={{ marginBottom: "26px" } as CSSProperties}>
+                  <div style={{ fontSize: "13px", fontWeight: "600", marginBottom: "4px" } as CSSProperties}>
+                    {"代码渲染主题"}
                   </div>
-                  <div style={{ padding: "9px 12px", border: "1px solid var(--border)", borderRadius: "8px", fontSize: "12.5px", width: "120px" } as CSSProperties}>
-                    {"14 px"}
+                  <div style={{ fontSize: "12px", color: "var(--text-2)", marginBottom: "10px" } as CSSProperties}>
+                    {"所有主题均为浅色背景；默认值与 JupyterLab Light 一致。"}
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: "8px" } as CSSProperties}>
+                    {codeThemeOptions.map((option) => {
+                      const active = codeTheme === option.id
+                      return (
+                        <button
+                          key={option.id}
+                          type="button"
+                          onClick={() => onCodeThemeChange(option.id)}
+                          style={{
+                            padding: "10px",
+                            borderRadius: "5px",
+                            border: `1px solid ${active ? "var(--accent)" : "var(--border)"}`,
+                            background: active ? "var(--accent-soft)" : "var(--surface)",
+                            color: "var(--text)",
+                            textAlign: "left",
+                            cursor: "pointer",
+                            boxShadow: active ? "0 0 0 1px rgba(35, 131, 226, .08)" : "none",
+                          } as CSSProperties}
+                        >
+                          <span style={{ display: "block", height: "32px", borderRadius: "3px", background: option.background, border: "1px solid var(--border)", marginBottom: "8px", position: "relative", overflow: "hidden" } as CSSProperties}>
+                            <span style={{ position: "absolute", left: "8px", top: "8px", width: "42%", height: "3px", borderRadius: "1px", background: option.accent } as CSSProperties} />
+                            <span style={{ position: "absolute", left: "8px", top: "16px", width: "64%", height: "3px", borderRadius: "1px", background: "var(--text-3)", opacity: ".55" } as CSSProperties} />
+                          </span>
+                          <span style={{ display: "block", fontSize: "12.5px", fontWeight: "600", marginBottom: "3px" } as CSSProperties}>
+                            {option.label}
+                          </span>
+                          <span style={{ display: "block", fontSize: "11px", lineHeight: "1.45", color: "var(--text-2)" } as CSSProperties}>
+                            {option.description}
+                          </span>
+                        </button>
+                      )
+                    })}
                   </div>
                 </div>
                 <div>
-                  <div style={{ fontSize: "12.5px", color: "var(--text-2)", marginBottom: "8px" } as CSSProperties}>
-                    {"密度"}
+                  <div style={{ fontSize: "13px", fontWeight: "600", marginBottom: "4px" } as CSSProperties}>
+                    {"Workspace 密度"}
                   </div>
-                  <div style={{ display: "flex", gap: "10px" } as CSSProperties}>
-                    <div style={{ padding: "8px 16px", borderRadius: "8px", background: "var(--accent-soft)", color: "var(--accent-dark)", fontSize: "13px", fontWeight: "500" } as CSSProperties}>
-                      {"舒适"}
-                    </div>
-                    <div style={{ padding: "8px 16px", borderRadius: "8px", border: "1px solid var(--border)", fontSize: "13px", color: "var(--text-2)" } as CSSProperties}>
-                      {"紧凑"}
-                    </div>
+                  <div style={{ fontSize: "12px", color: "var(--text-2)", marginBottom: "10px" } as CSSProperties}>
+                    {"紧凑模式会缩短 Cell 间距与工具栏留白。"}
+                  </div>
+                  <div style={{ display: "flex", gap: "8px" } as CSSProperties}>
+                    {([['comfortable', '舒适'], ['compact', '紧凑']] as const).map(([value, label]) => {
+                      const active = density === value
+                      return (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() => onDensityChange(value)}
+                          style={{
+                            padding: "7px 14px",
+                            borderRadius: "4px",
+                            border: `1px solid ${active ? "var(--accent)" : "var(--border)"}`,
+                            background: active ? "var(--accent-soft)" : "var(--surface)",
+                            color: active ? "var(--accent-dark)" : "var(--text-2)",
+                            fontSize: "12.5px",
+                            fontWeight: active ? "600" : "500",
+                            cursor: "pointer",
+                          } as CSSProperties}
+                        >
+                          {label}
+                        </button>
+                      )
+                    })}
                   </div>
                 </div>
               </>

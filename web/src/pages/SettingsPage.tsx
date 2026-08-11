@@ -1,4 +1,5 @@
 import { useState, type CSSProperties } from 'react'
+import { codeThemeOptions, setAppearance, useAppearance } from '../appearance'
 import { SettingsDesign } from '../design/pages/SettingsDesign'
 
 type Section = 'general' | 'workspace' | 'kernels' | 'figures' | 'agent' | 'providers' | 'permissions' | 'appearance' | 'account'
@@ -36,6 +37,7 @@ const knobStyle = (on: boolean): CSSProperties => ({
 })
 
 export function SettingsPage() {
+  const appearance = useAppearance()
   const [section, setSection] = useState<Section>('general')
   const [autosave, setAutosave] = useState(true)
   const [indexing, setIndexing] = useState(true)
@@ -55,6 +57,11 @@ export function SettingsPage() {
       isPermissions={section === 'permissions'}
       isAppearance={section === 'appearance'}
       isAccount={section === 'account'}
+      codeTheme={appearance.codeTheme}
+      codeThemeOptions={codeThemeOptions}
+      density={appearance.density}
+      onCodeThemeChange={(codeTheme) => setAppearance({ codeTheme })}
+      onDensityChange={(density) => setAppearance({ density })}
       navGeneralStyle={navStyle(section === 'general')}
       navWorkspaceStyle={navStyle(section === 'workspace')}
       navKernelsStyle={navStyle(section === 'kernels')}

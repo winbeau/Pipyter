@@ -1,31 +1,74 @@
 import { useRef, useState } from 'react'
 import type { FileEntry } from '../types'
 import { useWorkspace } from '../store'
-import { IconChevronDown, IconChevronRight, IconFileType, IconPlus, IconRefresh, IconSearch, IconTrash, IconUpload } from '../icons'
+import {
+  IconChevronDown,
+  IconChevronRight,
+  IconDownload,
+  IconFileType,
+  IconFilter,
+  IconFolder,
+  IconFolderNew,
+  IconPencil,
+  IconPlus,
+  IconRefresh,
+  IconSearch,
+  IconTrash,
+  IconUpload,
+} from '../icons'
 
 function Breadcrumbs() {
   const { state, actions } = useWorkspace()
   const segments = state.cwd ? state.cwd.split('/') : []
-  const parts = [{ label: state.workspace?.root_name ?? 'workspace', path: '' }]
-  let accumulated = ''
-  for (const segment of segments) {
-    accumulated = accumulated ? `${accumulated}/${segment}` : segment
-    parts.push({ label: segment, path: accumulated })
-  }
+  const rootName = state.workspace?.root_name ?? 'workspace'
+  const compact = segments.length > 1
+
   return (
-    <div className="ws-breadcrumbs">
-      {parts.map((part, index) => (
-        <span key={part.path}>
-          {index > 0 && <span className="ws-crumb-sep">/</span>}
-          <button
-            type="button"
-            className={`ws-crumb${index === parts.length - 1 ? ' ws-crumb-current' : ''}`}
-            onClick={() => actions.setCwd(part.path)}
-          >
-            {part.label}
-          </button>
-        </span>
-      ))}
+    <div className="ws-path-row" aria-label="当前目录" title={`/${rootName}${state.cwd ? `/${state.cwd}` : ''}/`}>
+      <button
+        type="button"
+        className="ws-root-folder-button"
+        title={state.cwd ? '返回工作区根目录' : `${rootName}（工作区根目录）`}
+        disabled={!state.cwd}
+        onClick={() => state.cwd && actions.setCwd('')}
+      >
+        <IconFolder size={16} />
+      </button>
+      <div className="ws-breadcrumbs">
+        {compact ? (
+          <>
+            <button
+              type="button"
+              className="ws-crumb ws-crumb-ellipsis"
+              title="上级目录"
+              onClick={() => actions.setCwd(segments.slice(0, -1).join('/'))}
+            >
+              ...
+            </button>
+            <span className="ws-crumb-sep">/</span>
+            <button type="button" className="ws-crumb ws-crumb-current" onClick={() => actions.setCwd(state.cwd)}>
+              {segments[segments.length - 1]}
+            </button>
+            <span className="ws-crumb-sep">/</span>
+          </>
+        ) : (
+          <>
+            <span className="ws-crumb-sep">/</span>
+            <button type="button" className={`ws-crumb${segments.length === 0 ? ' ws-crumb-current' : ''}`} onClick={() => actions.setCwd('')}>
+              {rootName}
+            </button>
+            {segments.map((segment) => (
+              <span key={segment} className="ws-breadcrumb-part">
+                <span className="ws-crumb-sep">/</span>
+                <button type="button" className="ws-crumb ws-crumb-current" onClick={() => actions.setCwd(state.cwd)}>
+                  {segment}
+                </button>
+              </span>
+            ))}
+            <span className="ws-crumb-sep">/</span>
+          </>
+        )}
+      </div>
     </div>
   )
 }
@@ -40,10 +83,7 @@ function TreeRow({ entry, depth }: { entry: FileEntry; depth: number }) {
     if (!isDirectory) return
     if (!expanded) {
       setExpanded(true)
-      if (!children) {
-        const fetched = await actions.listFiles(entry.path)
-        setChildren(fetched)
-      }
+      if (!children) setChildren(await actions.listFiles(entry.path))
     } else {
       setExpanded(false)
     }
@@ -68,26 +108,37 @@ function TreeRow({ entry, depth }: { entry: FileEntry; depth: number }) {
       () => void actions.deletePath(entry.path),
       true,
     )
-  const download = () => actions.downloadPath(entry.path)
 
   return (
     <>
       <div
         className={`ws-tree-row${state.active === entry.path ? ' ws-tree-row-active' : ''}`}
-        style={{ paddingLeft: 6 + depth * 14 }}
+        style={{ paddingLeft: 7 + depth * 14 }}
         onClick={open}
       >
-        <span className="ws-tree-chevron" onClick={(event) => { event.stopPropagation(); void toggle() }}>
-          {isDirectory ? (expanded ? <IconChevronDown size={11} /> : <IconChevronRight size={11} />) : null}
+        <span
+          className="ws-tree-chevron"
+          onClick={(event) => {
+            event.stopPropagation()
+            void toggle()
+          }}
+        >
+          {isDirectory ? (expanded ? <IconChevronDown size={12} /> : <IconChevronRight size={12} />) : null}
         </span>
-        <IconFileType kind={entry.type} size={14} />
+        <IconFileType kind={entry.type} name={entry.name} size={15} />
         <span className="ws-tree-name" title={entry.name}>{entry.name}</span>
         <span className="ws-tree-menu" onClick={(event) => event.stopPropagation()}>
           {!isDirectory && (
-            <button type="button" title="下载" onClick={download}>↓</button>
+            <button type="button" title="下载" onClick={() => actions.downloadPath(entry.path)}>
+              <IconDownload size={12} />
+            </button>
           )}
-          <button type="button" title="重命名" onClick={rename}>✎</button>
-          <button type="button" title="删除" onClick={remove}><IconTrash size={12} /></button>
+          <button type="button" title="重命名" onClick={rename}>
+            <IconPencil size={12} />
+          </button>
+          <button type="button" title="删除" onClick={remove}>
+            <IconTrash size={12} />
+          </button>
         </span>
       </div>
       {isDirectory && expanded && children && (
@@ -104,25 +155,39 @@ function TreeRow({ entry, depth }: { entry: FileEntry; depth: number }) {
 export function FileBrowser() {
   const { state, actions } = useWorkspace()
   const uploadRef = useRef<HTMLInputElement>(null)
+  const [filterOpen, setFilterOpen] = useState(false)
   const entries = (state.entries ?? []).filter((entry) => entry.name.toLowerCase().includes(state.filter.toLowerCase()))
   const flatRoot = state.cwd === ''
 
   return (
     <div className="ws-files">
-      <div className="ws-panel-header">
-        <Breadcrumbs />
-        <span className="ws-panel-actions">
-          <button type="button" title="新建文件" onClick={() => actions.showPrompt('新建文件', '文件名', 'untitled.py', (name) => void actions.newFile(state.cwd, name))}>
-            <IconPlus size={13} />
-          </button>
+      <div className="ws-file-toolbar">
+        <button
+          type="button"
+          className="ws-new-file-primary"
+          title="新建文件"
+          aria-label="新建文件"
+          onClick={() => actions.showPrompt('新建文件', '文件名', 'untitled.py', (name) => void actions.newFile(state.cwd, name))}
+        >
+          <IconPlus size={15} />
+        </button>
+        <span className="ws-panel-actions ws-file-toolbar-actions">
           <button type="button" title="新建文件夹" onClick={() => actions.showPrompt('新建文件夹', '文件夹名', 'untitled', (name) => void actions.newFolder(state.cwd, name))}>
-            <IconFolderNew />
+            <IconFolderNew size={16} />
           </button>
           <button type="button" title="上传文件" onClick={() => uploadRef.current?.click()}>
-            <IconUpload size={13} />
+            <IconUpload size={16} />
           </button>
           <button type="button" title="刷新" onClick={() => void actions.refreshTree()}>
-            <IconRefresh size={13} />
+            <IconRefresh size={16} />
+          </button>
+          <button
+            type="button"
+            title="过滤文件"
+            className={filterOpen || state.filter ? 'ws-file-action-active' : ''}
+            onClick={() => setFilterOpen((open) => !open)}
+          >
+            <IconFilter size={16} />
           </button>
           <input
             ref={uploadRef}
@@ -133,19 +198,26 @@ export function FileBrowser() {
           />
         </span>
       </div>
-      <div className="ws-filter-row">
-        <IconSearch size={12} />
-        <input
-          className="ws-filter-input"
-          placeholder="过滤文件…"
-          value={state.filter}
-          onChange={(event) => actions.setFilter(event.target.value)}
-        />
-      </div>
+      <Breadcrumbs />
+      {(filterOpen || state.filter) && (
+        <div className="ws-filter-row">
+          <IconSearch size={13} />
+          <input
+            className="ws-filter-input"
+            placeholder="过滤文件…"
+            value={state.filter}
+            autoFocus={filterOpen}
+            onChange={(event) => actions.setFilter(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape' && !state.filter) setFilterOpen(false)
+            }}
+          />
+        </div>
+      )}
       <div className="ws-tree">
         {entries.length === 0 && !flatRoot && (
           <button type="button" className="ws-up-link" onClick={() => actions.setCwd(state.cwd.slice(0, state.cwd.lastIndexOf('/')))}>
-            ↑ 上级目录
+            上级目录
           </button>
         )}
         {entries.map((entry) => (
@@ -156,14 +228,5 @@ export function FileBrowser() {
         )}
       </div>
     </div>
-  )
-}
-
-function IconFolderNew() {
-  return (
-    <svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round">
-      <path d="M2.5 5.5a1.5 1.5 0 0 1 1.5-1.5h3.2l1.8 2h7a1.5 1.5 0 0 1 1.5 1.5v8a1.5 1.5 0 0 1-1.5 1.5H4a1.5 1.5 0 0 1-1.5-1.5z" />
-      <path d="M10 9v5M7.5 11.5h5" />
-    </svg>
   )
 }

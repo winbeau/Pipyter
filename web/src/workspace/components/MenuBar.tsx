@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useWorkspace } from '../store'
-import { demoNotebookPath } from '../demo'
+import { IconChevronDown } from '../icons'
 
 type MenuEntry = { label?: string; action?: () => void; disabled?: boolean; divider?: boolean }
 
@@ -118,7 +118,7 @@ function MenuBar() {
         >
           <span className={`ws-dot ${state.busy ? 'ws-dot-busy' : ''}`} />
           Python 3{demoOnly ? ' · 演示' : ''}
-          <span className="ws-kernel-caret">▾</span>
+          <span className="ws-kernel-caret"><IconChevronDown size={11} /></span>
         </button>
       </div>
     </div>

@@ -15,7 +15,7 @@ import { demoNotebookCells } from './demo'
 import { defaultKeymap, loadKeymap, persistKeymap, type KeyActionId, type KeyCombo, type Keymap } from './keymap'
 import type { CellModel, DialogState, DocKind, FileEntry, LeftTab, Mode, OpenDoc, TerminalLine, WorkspaceState } from './types'
 
-const STORAGE_KEY = 'pipyter.workspace.v1'
+const STORAGE_KEY = 'pipyter.workspace.v2'
 
 const initialState: WorkspaceState = {
   mode: 'connecting',
@@ -38,7 +38,7 @@ const initialState: WorkspaceState = {
   busyCell: null,
   leftTab: 'files',
   leftOpen: true,
-  bottomOpen: true,
+  bottomOpen: false,
   terminalLines: [{ text: 'Pipyter Workspace terminal — 输入 help 查看可用命令', kind: 'sys' }],
   terminalHistory: [],
   dialog: null,
@@ -274,7 +274,7 @@ export type WorkspaceActions = {
   markDirty: (path: string) => void
   imageUrl: (path: string) => string
   updateCell: (path: string, index: number, patch: Partial<CellModel>) => void
-  insertCell: (path: string, index: number, cellType: 'code' | 'markdown') => void
+  insertCell: (path: string, index: number, cellType: 'code' | 'markdown', source?: string) => void
   deleteCell: (path: string, index: number) => void
   duplicateCell: (path: string, index: number) => void
   moveCell: (path: string, index: number, delta: number) => void
@@ -341,17 +341,25 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [apiMode, setApiMode] = useState<'api' | 'demo'>('demo')
 
   useEffect(() => {
-    const payload = {
-      openDocs: state.openDocs,
-      active: state.active,
-      leftOpen: state.leftOpen,
-      bottomOpen: state.bottomOpen,
-      cwd: state.cwd,
-      notebooks: state.notebooks,
-      notebookDoc: state.notebookDoc,
-      texts: state.texts,
+    const persist = () => {
+      const payload = {
+        openDocs: state.openDocs,
+        active: state.active,
+        leftOpen: state.leftOpen,
+        bottomOpen: state.bottomOpen,
+        cwd: state.cwd,
+        notebooks: state.notebooks,
+        notebookDoc: state.notebookDoc,
+        texts: state.texts,
+      }
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload))
     }
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload))
+    const timer = window.setTimeout(persist, 180)
+    window.addEventListener('pagehide', persist)
+    return () => {
+      window.clearTimeout(timer)
+      window.removeEventListener('pagehide', persist)
+    }
   }, [state.openDocs, state.active, state.leftOpen, state.bottomOpen, state.cwd, state.notebooks, state.notebookDoc, state.texts])
 
   useEffect(() => {
@@ -526,10 +534,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   )
 
   const insertCell = useCallback(
-    (path: string, index: number, cellType: 'code' | 'markdown') => {
+    (path: string, index: number, cellType: 'code' | 'markdown', source = '') => {
       const cells = stateRef.current.notebooks[path]
       if (!cells) return
-      const cell: CellModel = { id: newCellId(), cellType, source: '', executionCount: null, outputs: [] }
+      const cell: CellModel = { id: newCellId(), cellType, source, executionCount: null, outputs: [] }
       const next = [...cells.slice(0, index), cell, ...cells.slice(index)]
       dispatch({ type: 'patchCells', path, cells: next })
       dispatch({ type: 'setDirty', path, dirty: true })

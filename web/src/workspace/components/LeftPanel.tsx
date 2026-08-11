@@ -1,4 +1,5 @@
 import { useWorkspace } from '../store'
+import { IconCollapse, IconExpand } from '../icons'
 import { FileBrowser } from './FileBrowser'
 
 /** Left column: file browser only. The collapse toggle sits at its bottom-right. */
@@ -13,7 +14,7 @@ export function LeftPanel() {
           onClick={() => actions.setLeftOpen(true)}
           aria-label="展开文件树"
         >
-          <span className="ws-left-expand-icon">▶</span>
+          <IconExpand size={14} />
         </button>
       </div>
     )
@@ -29,7 +30,7 @@ export function LeftPanel() {
             title="收起文件树"
             onClick={() => actions.setLeftOpen(false)}
           >
-            ◀ 收起
+            <IconCollapse size={13} /> 收起
           </button>
         </div>
       </div>

@@ -7,12 +7,14 @@ import os
 import shutil
 import socket
 import sys
+import threading
+import webbrowser
 from pathlib import Path
 
 from .. import __version__
 from ..auth.device import login_local, login_with_device_flow
 from ..config import load_credentials
-from ..exceptions import PipyterError
+from ..exceptions import PipyterError, ProjectNotLinkedError
 from ..runtime.manager import RuntimeManager
 from ..workspace.project import find_project, link_project, load_project
 
@@ -54,6 +56,12 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8765)
     serve.add_argument("--reload", action="store_true")
+
+    lab = commands.add_parser("lab", help="Launch the Pipyter Workspace web UI for the current project")
+    lab.add_argument("path", nargs="?", default=".")
+    lab.add_argument("--host", default="127.0.0.1")
+    lab.add_argument("--port", type=int, default=8765)
+    lab.add_argument("--no-browser", action="store_true", help="Do not open a browser tab automatically")
     return parser
 
 
@@ -75,6 +83,8 @@ def main(argv: list[str] | None = None) -> int:
             return _doctor(args)
         if args.command == "serve":
             return _serve(args)
+        if args.command == "lab":
+            return _lab(args)
     except PipyterError as error:
         print(f"pipyter: {error}", file=sys.stderr)
         return 2
@@ -169,6 +179,28 @@ def _serve(args: argparse.Namespace) -> int:
         )
     else:
         uvicorn.run(create_app(project.root), host=args.host, port=args.port)
+    return 0
+
+
+def _lab(args: argparse.Namespace) -> int:
+    """Launch the Workspace web UI: auto-link the directory, serve the bundled
+    portal and API on one origin, and open the browser at the Workspace page."""
+    import uvicorn
+
+    from ..server.app import create_app
+
+    try:
+        project = load_project(args.path)
+    except ProjectNotLinkedError:
+        project = link_project(args.path)
+        print(f"Linked workspace {project.name} at {project.root}")
+
+    url = f"http://{args.host}:{args.port}/#/workspace"
+    print(f"Pipyter Workspace: {url}")
+    print(f"Workspace root: {project.root}")
+    if not args.no_browser:
+        threading.Timer(0.8, lambda: webbrowser.open(url)).start()
+    uvicorn.run(create_app(project.root), host=args.host, port=args.port)
     return 0
 
 

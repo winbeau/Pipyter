@@ -2,16 +2,17 @@ import { useState, type CSSProperties } from 'react'
 import { WorkspaceApp } from '../workspace/WorkspaceApp'
 
 export function WorkspacePage() {
-  const [pilotOpen, setPilotOpen] = useState(true)
+  const [pilotOpen, setPilotOpen] = useState(false)
   const pilotToggleStyle: CSSProperties = {
     display: 'flex',
     alignItems: 'center',
     gap: 6,
     padding: '6px 12px',
-    borderRadius: 20,
+    borderRadius: 4,
     cursor: 'pointer',
-    background: pilotOpen ? '#F2E1D2' : 'transparent',
-    color: pilotOpen ? '#96481C' : '#6E6656',
+    background: pilotOpen ? 'var(--pilot-soft)' : 'transparent',
+    color: pilotOpen ? 'var(--pilot-dark)' : 'var(--text-2)',
+    transition: 'background-color 120ms ease, color 120ms ease',
   }
 
   return (

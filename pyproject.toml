@@ -63,11 +63,15 @@ include = [
   "/UPSTREAM.md",
 ]
 
+[tool.hatch.build.targets.sdist.force-include]
+"src/pipyter/static" = "src/pipyter/static"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/pipyter"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "packages/protocol/schemas" = "pipyter/protocol/schemas"
+"src/pipyter/static" = "pipyter/static"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

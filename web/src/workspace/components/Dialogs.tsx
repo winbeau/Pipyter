@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
+import { codeThemeOptions, setAppearance, useAppearance } from '../../appearance'
 import { useWorkspace } from '../store'
-import { IconClose, IconKernel, IconRestart, IconStop, IconTerminal, IconTrash } from '../icons'
+import { IconCheck, IconClose, IconKernel, IconRestart, IconStop, IconTerminal, IconTrash } from '../icons'
 import { comboLabel, defaultKeymap, keyActionLabels, keyActionOrder, type KeyActionId, type KeyCombo } from '../keymap'
 
 export function DialogHost() {
   const { state, actions } = useWorkspace()
+  const appearance = useAppearance()
   const dialog = state.dialog
   const [value, setValue] = useState('')
-  const [settingsTab, setSettingsTab] = useState<'connection' | 'shortcuts'>('connection')
+  const [settingsTab, setSettingsTab] = useState<'connection' | 'appearance' | 'shortcuts'>('connection')
   const [editingAction, setEditingAction] = useState<KeyActionId | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -161,7 +163,7 @@ export function DialogHost() {
                   <span className="ws-kernel-spec-lang">{spec.language}{demoOnly ? ' · 演示' : ''}</span>
                   <span className="ws-kernel-spec-right">
                     {active ? (
-                      <span className="ws-kernel-check">✓ 当前</span>
+                      <span className="ws-kernel-check"><IconCheck size={11} /> 当前</span>
                     ) : (
                       <button
                         type="button"
@@ -213,6 +215,13 @@ export function DialogHost() {
             </button>
             <button
               type="button"
+              className={`ws-settings-tab${settingsTab === 'appearance' ? ' ws-settings-tab-active' : ''}`}
+              onClick={() => setSettingsTab('appearance')}
+            >
+              外观
+            </button>
+            <button
+              type="button"
               className={`ws-settings-tab${settingsTab === 'shortcuts' ? ' ws-settings-tab-active' : ''}`}
               onClick={() => setSettingsTab('shortcuts')}
             >
@@ -230,6 +239,48 @@ export function DialogHost() {
                 <p><strong>说明</strong></p>
                 <p>Workspace v0.1 通过 <code>/api/v1</code> 与 Runtime 通信；后端不可用时自动降级为浏览器内演示数据。所有布局与打开的文档保存在本地存储。</p>
                 <button type="button" className="ws-btn" onClick={() => void actions.reconnect()}>重新连接 Runtime</button>
+              </div>
+            ) : settingsTab === 'appearance' ? (
+              <div className="ws-appearance-settings">
+                <div className="ws-setting-heading">代码渲染主题</div>
+                <p className="ws-shortcuts-hint">编辑器使用 JupyterLab 同源的 CodeMirror 6 主题结构；默认保持 JupyterLab Light。</p>
+                <div className="ws-code-theme-list">
+                  {codeThemeOptions.map((option) => (
+                    <button
+                      key={option.id}
+                      type="button"
+                      className={`ws-code-theme-option${appearance.codeTheme === option.id ? ' ws-code-theme-option-active' : ''}`}
+                      onClick={() => setAppearance({ codeTheme: option.id })}
+                    >
+                      <span className="ws-code-theme-swatch" style={{ background: option.background }}>
+                        <span style={{ background: option.accent }} />
+                        <span />
+                      </span>
+                      <span className="ws-code-theme-copy">
+                        <strong>{option.label}</strong>
+                        <small>{option.description}</small>
+                      </span>
+                      <span className="ws-code-theme-check">{appearance.codeTheme === option.id ? <IconCheck size={13} /> : null}</span>
+                    </button>
+                  ))}
+                </div>
+                <div className="ws-setting-heading ws-setting-heading-gap">Workspace 密度</div>
+                <div className="ws-density-options">
+                  <button
+                    type="button"
+                    className={`ws-density-option${appearance.density === 'comfortable' ? ' ws-density-option-active' : ''}`}
+                    onClick={() => setAppearance({ density: 'comfortable' })}
+                  >
+                    舒适
+                  </button>
+                  <button
+                    type="button"
+                    className={`ws-density-option${appearance.density === 'compact' ? ' ws-density-option-active' : ''}`}
+                    onClick={() => setAppearance({ density: 'compact' })}
+                  >
+                    紧凑
+                  </button>
+                </div>
               </div>
             ) : (
               <div>

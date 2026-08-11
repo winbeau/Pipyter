@@ -10,7 +10,7 @@ import { TextView } from './components/TextView'
 import { ImageView } from './components/ImageView'
 import { DialogHost } from './components/Dialogs'
 import { PilotPanel } from './components/PilotPanel'
-import { IconClose, IconFileType, IconSpinner, IconChevronDown } from './icons'
+import { IconChevronDown, IconClose, IconFileType, IconPilot, IconPlus, IconSpinner } from './icons'
 
 type PilotProps = {
   pilotOpen: boolean
@@ -46,7 +46,7 @@ function WorkspaceShell({ pilotOpen, pilotCollapsed, pilotToggleStyle, togglePil
                   className={`ws-tab${active ? ' ws-tab-active' : ''}`}
                   onClick={() => actions.setActive(doc.path)}
                 >
-                  <IconFileType kind={doc.kind === 'notebook' ? 'notebook' : doc.kind === 'image' ? 'image' : 'file'} size={13} />
+                  <IconFileType kind={doc.kind === 'notebook' ? 'notebook' : doc.kind === 'image' ? 'image' : 'file'} name={doc.path} size={13} />
                   <span className="ws-tab-name" title={doc.path}>{doc.path.split('/').pop()}</span>
                   {dirty && <span className="ws-tab-dirty">●</span>}
                   <button
@@ -63,12 +63,17 @@ function WorkspaceShell({ pilotOpen, pilotCollapsed, pilotToggleStyle, togglePil
                 </div>
               )
             })}
+            <button
+              type="button"
+              className="ws-tab-add"
+              title="新建文件"
+              onClick={() => actions.showPrompt('新建文件', '文件名', 'untitled.py', (name) => void actions.newFile(state.cwd, name))}
+            >
+              <IconPlus size={15} />
+            </button>
             <div className="ws-tabbar-spacer" />
             <button type="button" className="ws-pilot-toggle" style={pilotToggleStyle} onClick={togglePilot}>
-              <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6">
-                <circle cx="10" cy="10" r="6.5" />
-                <circle cx="10" cy="10" r="1.6" fill="currentColor" stroke="none" />
-              </svg>
+              <IconPilot size={14} />
               <span style={{ fontSize: '12px', fontWeight: 500 }}>Pilot</span>
             </button>
             <button

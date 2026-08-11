@@ -17,7 +17,7 @@ def cli_project(tmp_path, isolated_config):
 
 
 def test_help_exits_zero():
-    for argv in (["--help"], ["auth", "--help"]):
+    for argv in (["--help"], ["auth", "--help"], ["lab", "--help"]):
         with pytest.raises(SystemExit) as excinfo:
             main(argv)
         assert excinfo.value.code == 0
