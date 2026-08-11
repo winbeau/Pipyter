@@ -43,7 +43,7 @@ function MenuBar() {
       { label: state.bottomOpen ? '隐藏底部终端' : '显示底部终端', action: () => actions.setBottomOpen(!state.bottomOpen) },
     ],
     Run: [
-      { label: '运行 Cell（全部运行需要打开 Notebook）', action: () => notebookActive && activeDoc && void actions.runAll(activeDoc.path), disabled: !notebookActive },
+      { label: '运行全部 Cell', action: () => notebookActive && activeDoc && void actions.runAll(activeDoc.path), disabled: !notebookActive },
       { label: '重启 Kernel', action: () => void actions.restartKernel(), disabled: !state.kernelId },
       { label: '中断 Kernel', action: () => void actions.interruptKernel(), disabled: !state.kernelId },
     ],

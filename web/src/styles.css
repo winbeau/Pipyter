@@ -1753,3 +1753,89 @@ html[data-workspace-density='compact'] .ws-cell-textarea { padding-top: 6px; pad
 .ws-tabbar-spacer { min-width: 12px; }
 .ws-tabbar-toggle { align-self: center; margin-bottom: 0; }
 .ws-pilot-toggle { align-self: center; margin-bottom: 0; }
+
+/* ----- UI scale-up & tab / dialog / toolbar polish ----- */
+.ws-shell {
+  --jp-code-font-size: 14px;
+}
+
+.ws-menubar button,
+.ws-menu-item { font-size: 13.5px; }
+.ws-tab { font-size: 13.5px; }
+.ws-tree-row { font-size: 13.5px; }
+.ws-path-row .ws-crumb { font-size: 13.5px; }
+.ws-statusbar { font-size: 12.5px; }
+.ws-empty-hint { font-size: 13px; }
+.ws-cell-count,
+.ws-cell-count-busy { font-size: 12px; }
+.ws-output-stream,
+.ws-output-result,
+.ws-output-error { font-size: 13px; }
+.ws-cell-markdown-rendered { font-size: 15px; }
+.ws-celltype-select { font-size: 13px; }
+.ws-textview-path { font-size: 13px; }
+.ws-textview-cursor { font-size: 12px; }
+.ws-terminal-title { font-size: 13px; }
+.ws-terminal-body { font-size: 13px; }
+.ws-dialog-body { font-size: 13.5px; }
+.ws-dialog-label { font-size: 13px; }
+.ws-dialog-input { font-size: 14px; }
+.ws-notebook-toolbar-title {
+  flex-shrink: 0;
+  max-width: 320px;
+  overflow: hidden;
+  padding: 0 8px 0 6px;
+  color: var(--text-2);
+  font-size: 13.5px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* tab strip: no gaps between tabs, close button right-aligned */
+.ws-tabbar { gap: 0; }
+.ws-tab-name { flex: 1; min-width: 0; }
+.ws-tab-close { margin-left: 2px; }
+
+/* new-file dialog input: single clean border */
+.ws-dialog-input {
+  border: 1px solid var(--border);
+  box-shadow: none;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+/* root folder button: widen slightly on hover */
+.ws-shell .ws-root-folder-button {
+  transition: width var(--transition-fast), background-color var(--transition-fast), color var(--transition-fast);
+}
+.ws-root-folder-button:hover { width: 27px; }
+
+/* terminal toggle: same level as Pilot */
+.ws-terminal-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  align-self: center;
+  margin-bottom: 0;
+  padding: 6px 12px;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+.ws-terminal-toggle:hover { background: var(--surface-hover); color: var(--text); }
+.ws-terminal-toggle-active,
+.ws-terminal-toggle-active:hover {
+  background: var(--pilot-soft);
+  color: var(--pilot-dark);
+}
+
+/* active tab: top accent bar only, no surrounding border lines */
+.ws-tab { border-left: 1px solid transparent; border-right: 1px solid transparent; }
+.ws-tab-active,
+.ws-tab-active:hover { border-color: transparent; }
+
+/* dialog input: focus uses border color only, no extra outline ring */
+.ws-shell .ws-dialog-input:focus-visible { outline: none; }

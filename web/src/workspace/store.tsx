@@ -883,7 +883,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           return []
         }
       },
-      setCwd: (cwd) => dispatch({ type: 'setCwd', cwd }),
+      setCwd: (cwd) => {
+        if (stateRef.current.cwd === cwd) return
+        dispatch({ type: 'setCwd', cwd })
+      },
       setFilter: (filter) => dispatch({ type: 'setFilter', filter }),
       openDoc,
       closeDoc: (path) => dispatch({ type: 'closeDoc', path }),

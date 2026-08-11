@@ -10,7 +10,7 @@ import { TextView } from './components/TextView'
 import { ImageView } from './components/ImageView'
 import { DialogHost } from './components/Dialogs'
 import { PilotPanel } from './components/PilotPanel'
-import { IconChevronDown, IconClose, IconFileType, IconPilot, IconPlus, IconSpinner } from './icons'
+import { IconClose, IconFileType, IconPilot, IconPlus, IconSpinner, IconTerminal } from './icons'
 
 type PilotProps = {
   pilotOpen: boolean
@@ -78,11 +78,12 @@ function WorkspaceShell({ pilotOpen, pilotCollapsed, pilotToggleStyle, togglePil
             </button>
             <button
               type="button"
-              className="ws-tabbar-toggle"
+              className={`ws-terminal-toggle${state.bottomOpen ? ' ws-terminal-toggle-active' : ''}`}
               title={state.bottomOpen ? '收起底部终端' : '展开底部终端'}
               onClick={() => actions.setBottomOpen(!state.bottomOpen)}
             >
-              <IconChevronDown size={13} style={{ transform: state.bottomOpen ? 'rotate(180deg)' : 'none' }} />
+              <IconTerminal size={14} />
+              <span style={{ fontSize: '12px', fontWeight: 500 }}>Terminal</span>
             </button>
           </div>
           <div className="ws-docs">

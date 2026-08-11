@@ -2,6 +2,28 @@
 
 All notable changes to Pipyter are documented in this file.
 
+## [0.1.3] - 2025-08-11
+
+### Changed
+
+- Workspace UI typography scaled up (tabs, file tree, outputs, dialogs, code
+  editors, status bar) for comfortable reading.
+- Notebook filename moved from the center of the page to the right side of
+  the toolbar row below the tab strip.
+- Terminal toggle is now a labeled `Terminal` button with an icon, at the
+  same level as `Pilot`.
+- Run menu item simplified to `运行全部 Cell`.
+- Breadcrumb navigation: clicking the current directory or the workspace
+  root no longer reloads the file list; the folder button always returns to
+  the workspace root; empty directories show a gray `当前目录无文件` hint
+  instead of an `上级目录` button.
+
+### Fixed
+
+- Document tab strip: close button is right-aligned and tabs no longer show
+  divider lines or a nested-container border.
+- New-file dialog input shows a single border (focus outline removed).
+
 ## [0.1.2] - 2025-08-11
 
 ### Added

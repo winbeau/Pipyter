@@ -28,9 +28,8 @@ function Breadcrumbs() {
       <button
         type="button"
         className="ws-root-folder-button"
-        title={state.cwd ? '返回工作区根目录' : `${rootName}（工作区根目录）`}
-        disabled={!state.cwd}
-        onClick={() => state.cwd && actions.setCwd('')}
+        title={state.cwd ? `返回工作区根目录（${rootName}）` : `${rootName}（工作区根目录）`}
+        onClick={() => actions.setCwd('')}
       >
         <IconFolder size={16} />
       </button>
@@ -215,16 +214,11 @@ export function FileBrowser() {
         </div>
       )}
       <div className="ws-tree">
-        {entries.length === 0 && !flatRoot && (
-          <button type="button" className="ws-up-link" onClick={() => actions.setCwd(state.cwd.slice(0, state.cwd.lastIndexOf('/')))}>
-            上级目录
-          </button>
-        )}
         {entries.map((entry) => (
           <TreeRow key={entry.path} entry={entry} depth={0} />
         ))}
         {entries.length === 0 && (
-          <div className="ws-empty-hint">{flatRoot ? '工作区为空' : '（空目录）'}</div>
+          <div className="ws-empty-hint">{flatRoot ? '工作区为空' : '当前目录无文件'}</div>
         )}
       </div>
     </div>

@@ -64,7 +64,7 @@ def create_app(root: str | os.PathLike[str] | None = None) -> FastAPI:
 
     app = FastAPI(
         title="Pipyter Runtime API",
-        version="0.1.2",
+        version="0.1.3",
         description="Workspace, file, notebook, kernel and terminal bridge for Pipyter.",
         lifespan=lifespan,
     )

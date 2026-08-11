@@ -428,6 +428,8 @@ export function NotebookView({ path }: { path: string }) {
     }
   }
 
+  const notebookTitle = useMemo(() => path.split('/').pop() ?? path, [path])
+
   const toolbar = (
     <div className="ws-notebook-toolbar">
       <button type="button" title="保存 Notebook" disabled={!dirty} onClick={() => void actions.saveDoc(path)}>
@@ -508,6 +510,8 @@ export function NotebookView({ path }: { path: string }) {
           </div>
         )}
       </div>
+      <div className="ws-toolbar-spacer" style={{ flex: 1 }} />
+      <span className="ws-notebook-toolbar-title" title={path}>{notebookTitle}</span>
     </div>
   )
 
@@ -633,14 +637,11 @@ export function NotebookView({ path }: { path: string }) {
     )
   }
 
-  const notebookTitle = useMemo(() => path.split('/').pop() ?? path, [path])
-
   return (
     <div className="ws-notebook" tabIndex={0} onKeyDown={onKeyDown} ref={containerRef}>
       {toolbar}
       <div className="ws-notebook-scroll">
         <div className="ws-notebook-page">
-          <h2 className="ws-notebook-title">{notebookTitle}</h2>
           <div className="ws-cells">{cells.map((cell, index) => cellElement(cell, index))}</div>
           <button
             type="button"
