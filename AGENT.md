@@ -216,3 +216,48 @@ After this path works, add Figure Studio, figure/code synchronization, advanced 
 - Generic BeauPi behavior → `engines/beaupi/`
 
 For `engines/beaupi/`, work only on the `pipyter-dev` branch and never commit Pipyter changes directly to `main`. Follow each engine's local `AGENTS.md` before changing engine code.
+
+## Release and Publishing (PyPI)
+
+### Versioning
+
+- The single source of truth is `src/pipyter/_version.py` (e.g. `__version__ = "0.1.0"`).
+- PyPI does not allow re-uploading an already published version: bump the version for every release.
+- Keep the changelog and the version bump in the same commit.
+
+### Preflight checklist
+
+1. `uv run pytest` — the full suite must pass.
+2. `cd web && pnpm typecheck && pnpm build` — the portal build lands in `src/pipyter/static` (gitignored); it is not part of the wheel.
+3. `uv build` — creates `dist/pipyter-<version>.tar.gz` and `dist/pipyter-<version>-py3-none-any.whl`.
+4. Inspect the wheel (`python3 -m zipfile -l dist/*.whl`): must contain all modules, `pipyter/protocol/schemas/`, `LICENSE` and the `pipyter` entry point, and no `__pycache__` or credentials.
+5. Install the wheel into a clean venv and smoke-test `pipyter --version` and `pipyter doctor .`.
+
+### Publishing
+
+- The PyPI API token is stored outside the repository at `~/.config/pipyter/pypi-token` (mode `0600`). Never write it into project metadata, notebooks, browser URLs, frontend state, command history, or logs.
+- Publish with uv; the token is read from the environment only, never placed on the command line:
+
+  ```bash
+  cd /home/winbeau/Projects/Pipyter
+  uv build
+  UV_PUBLISH_TOKEN="$(cat ~/.config/pipyter/pypi-token)" uv publish
+  ```
+
+- Optional rehearsal on TestPyPI before the real upload:
+
+  ```bash
+  UV_PUBLISH_TOKEN="$(cat ~/.config/pipyter/pypi-token)" uv publish --publish-url https://test.pypi.org/legacy/
+  ```
+
+- Stop condition: do not publish to PyPI without explicit user approval.
+
+### Post-release verification
+
+```bash
+python3 -m venv /tmp/pipyter-check && /tmp/pipyter-check/bin/pip install pipyter
+/tmp/pipyter-check/bin/pipyter --version
+```
+
+- Confirm the release exists at `https://pypi.org/project/pipyter/<version>/`.
+- If the token was ever shared in chat or logs, rotate it at PyPI → Account settings → API tokens.
