@@ -2,7 +2,7 @@
 
 ## Goal
 
-Deliver a PyPI-installable `pipyter` package that can bind a project directory, start a local runtime around JupyterLab, expose a stable Workspace API, and serve the existing React portal with a JupyterLab-inspired Workspace. Pi/BeauPi remains an engine boundary and is not expanded in this milestone.
+Deliver a PyPI-installable `pipyter` package that can bind a project directory, start a local runtime around JupyterLab, expose a stable Workspace API, and serve the React portal with a JupyterLab-inspired Workspace. Pigent runtime and its redesigned panel/Shell integration are implemented by the follow-on Pigent plan.
 
 ## Architecture boundary
 
@@ -38,10 +38,14 @@ Product code stays outside `engines/`. JupyterLab is launched as an installed Py
 - [React Workspace](04-web-workspace.md)
 - [Verification and PyPI release](05-verification-release.md)
 
+## Follow-on Pigent and Shell migration
+
+The old static Pilot-labelled panel is not a compatibility target. [Pigent v0.1](../pigent-v0.1/README.md) replaces it with the latest designs: Pigent naming, Ask/Plan/Auto, canonical `/pigent`, a shared live Pigent session, a 360 px light Workspace panel, and a persistent multi-session Shell. It also directly copies BeauPi first-party runtime code into tracked `packages/pigent/` while `engines/` remains ignored.
+
 ## Completion criteria
 
-- `uv tool install .` or `pip install .` exposes the `pipyter` command.
+- `uv tool install .` exposes the `pipyter` command as the preferred user-level installation; `pip install .` remains a packaging smoke path.
 - `pipyter project link .`, `pipyter doctor`, `pipyter up .`, `pipyter status`, and `pipyter down` have implemented behavior.
 - Workspace API validates paths against the linked project root.
-- React Workspace retains the existing Pilot open/collapse interaction and adds JupyterLab-style non-Agent functionality.
-- Python and web builds pass without modifying `engines/`.
+- React Workspace provides the JupyterLab-style non-Agent baseline consumed by the Pigent/Shell migration.
+- Python and web builds pass without reading or modifying ignored `engines/` as part of normal build/runtime behavior.

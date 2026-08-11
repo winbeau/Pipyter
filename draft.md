@@ -1,11 +1,14 @@
+> **Terminology update:** Pipyter 对外的 Agent 统一命名为 **Pigent**，模式收敛为 **Ask / Plan / Auto**。`engines/beaupi/` 只是被 Git ignore 的本地第一方源码参考；有效代码会直接复制到受版本控制的 `packages/pigent/` 并作为 Pipyter 自身代码维护。最新工具、Runtime、界面、Shell 与 PyPI 迁移计划见 [`docs/plans/pigent-v0.1/`](docs/plans/pigent-v0.1/README.md)。
+>
+> **安装与配置更新：** 用户安装统一推荐 `uv tool install pipyter`。Pigent 的模型/API 配置只使用 `${XDG_CONFIG_HOME:-~/.config}/pipyter/pigent/settings.json` 与 `auth.json`；不设计 `models.json`、`models-store.json`，也不自动继承 `.beaupi`/`.pi` 用户状态。
+
 对。既然准备把两边代码直接纳入 **Pipyter 单仓库长期维护**，我反而建议不要再把它看成“JupyterLab fork + Pi fork 拼接”，而是从产品层重新划分：
 
-> **Pipyter = Jupyter 计算工作区 + Figure Studio + Pi Agent + 多用户工作区管理**
+> **Pipyter = Jupyter 计算工作区 + Figure Studio + Pigent + 多用户工作区管理**
 
-JupyterLab 和 Pi 都只是两个 engine。
+JupyterLab 是计算/IDE engine；BeauPi 是同一作者维护的第一方源码来源，复制进 `packages/pigent/` 后不再保留独立 engine 边界。Pigent 是 Pipyter 对外及仓库内的 Agent 产品实现。
 
-另外版权这里需要稍微严谨一点：你当前的 JupyterLab fork是 BSD-3-Clause，Pi/BeauPi 上游是 MIT。
-所以复制代码没问题，但对应源码里的版权和许可证声明要保留。我建议根目录统一放 `THIRD_PARTY_LICENSES/`，同时记录你从哪个 upstream commit 开始演化。
+JupyterLab 的 BSD-3-Clause 要求仍按其依赖/分发方式处理；BeauPi 到 Pigent 的复制不作为版权或上游同步门槛。
 
 ---
 
@@ -76,7 +79,7 @@ services/
         ┌───────────────────┼────────────────────┐
         │                   │                    │
         ▼                   ▼                    ▼
-    Workspace IDE      Figure Studio         Pi Agent
+    Workspace IDE      Figure Studio         Pigent
         │                   │                    │
         └──────────────┬────┴───────────────┬────┘
                        ▼                    ▼
@@ -97,7 +100,7 @@ services/
 
 这是 Pipyter 真正区别于普通 Jupyter 的核心。
 
-### ③ Pi Agent
+### ③ Pigent
 
 负责 AI 编程、绘图、分析。
 
@@ -147,12 +150,12 @@ Jupyter Server Protocol
 │ Pipyter    File Edit Run Kernel Figure Agent       ● H200 │
 ├──────────┬──────────────────────────────────┬───────────────┤
 │          │                                  │               │
-│ Files    │        Notebook / Editor         │   Pi Agent    │
+│ Files    │        Notebook / Editor         │    Pigent     │
 │          │                                  │               │
 │ 📁 exp   │   x = ...                        │ context       │
 │ 📄 a.py  │   plt.plot(...)                  │ current.ipynb │
 │ 📄 .csv  │                                  │               │
-│          │   [ Figure Output ]              │ Ask Pi...     │
+│          │   [ Figure Output ]              │ Ask Pigent... │
 │          │                                  │               │
 ├──────────┴──────────────────────────────────┴───────────────┤
 │                  Figure Studio / Terminal                  │
@@ -382,7 +385,7 @@ Compare v3 ↔ v5
 Restore
 Duplicate
 Export
-Ask Pi about this figure
+Ask Pigent about this figure
 ```
 
 后面甚至能接 Git。
@@ -424,9 +427,9 @@ export history
 
 ---
 
-# 九、Pi Agent：不要只是 Chatbot
+# 九、Pigent：不要只是 Chatbot
 
-Pi 在 Pipyter 里应该变成：
+Pigent 在 Pipyter 里应该变成：
 
 > **具有当前科研 Workspace 完整上下文的操作型 Agent**
 
@@ -510,9 +513,9 @@ ContextProvider
 
 ---
 
-# 十一、Agent Tools
+# 十一、Pigent Tools
 
-Pi 应该能够真正操作 Pipyter。
+Pigent 应该能够真正操作 Pipyter。
 
 第一版我会提供：
 
@@ -585,7 +588,7 @@ Dangerous
 前端可以显示：
 
 ```text
-Pi wants to:
+Pigent wants to:
 
 Run:
 python plot.py
@@ -608,7 +611,7 @@ packages/protocol/
 services/runtime-bridge/
 ```
 
-因为你不能让 Pi 直接依赖 JupyterLab 内部 API。
+因为你不能让 Pigent 直接依赖 JupyterLab 内部 API。
 
 架构：
 
@@ -621,8 +624,8 @@ services/runtime-bridge/
           │       │       │
           │       │       │
           ▼       ▼       ▼
-       Jupyter   Kernel    Pi
-       Server             Agent
+       Jupyter   Kernel  Pigent
+       Server              Host
 ```
 
 Protocol 可以定义：
@@ -644,7 +647,7 @@ Protocol 可以定义：
 }
 ```
 
-以后你把 Pi 换掉：
+以后你把底层 Agent engine 换掉：
 
 ```text
 Pi
@@ -716,7 +719,7 @@ custom object
 “这张图为什么第 5 个点突然下降？”
 ```
 
-Pi 可以：
+Pigent 可以：
 
 ```text
 1. inspect figure
@@ -806,7 +809,7 @@ bob/
 User
 ├── Workspace
 ├── Kernels
-├── Pi Session
+├── Pigent Session
 ├── API Keys
 ├── Figure Library
 └── Preferences
@@ -848,7 +851,7 @@ User Secret Store
        ↓
 Provider Adapter
        ↓
-Pi
+Pigent
 ```
 
 不要：
@@ -1095,10 +1098,10 @@ Pipyter/engines/jupyterlab/.git
                        │
          ┌─────────────┴─────────────┐
          ▼                           ▼
-    Notebook                    Pi Sidebar
+    Notebook                  Pigent Sidebar
          │                           │
          ▼                           ▼
-      Kernel ←── Runtime Bridge ── Pi Agent
+      Kernel ←── Runtime Bridge ── Pigent
          │
          ▼
    Matplotlib Figure
@@ -1111,10 +1114,10 @@ Pipyter/engines/jupyterlab/.git
 
 1. `pipyter lab` 能启动；
 2. 自己的品牌 JupyterLab；
-3. Pi sidebar；
-4. Pi 能读当前 notebook；
-5. Pi 能运行/修改 cell；
-6. Pi 能读取当前 workspace；
+3. Pigent sidebar；
+4. Pigent 能读当前 notebook；
+5. Pigent 能运行/修改 cell；
+6. Pigent 能读取当前 workspace；
 7. Matplotlib 图自动进入 Figure Studio；
 8. Figure 一键 SVG/PDF/PNG；
 9. Figure Inspector 能改一些核心属性；
@@ -1131,7 +1134,7 @@ Figure ↔ Code 双向同步
 
 Figure history
 
-Variable inspector for Pi
+Variable inspector for Pigent
 
 DataFrame context
 
@@ -1180,8 +1183,8 @@ Pipyter **不是另一个 JupyterLab**。
 
 它应该定义为：
 
-> **Pipyter is an AI-native scientific computing and figure workspace built on Jupyter and Pi.**
+> **Pipyter is an AI-native scientific computing and figure workspace built on Jupyter and Pigent.**
 
-Jupyter 负责 **compute**，Pi 负责 **intelligence**，而 Pipyter 自己最核心的是 **workspace + context + figure workflow**。
+Jupyter 负责 **compute**，Pigent 负责 **intelligence**，而 Pipyter 自己最核心的是 **workspace + context + figure workflow**。
 
-如果这个边界定住，后续你会发现哪些代码该改 Jupyter，哪些该改 Pi，哪些必须留在 Pipyter 自己里面，会清晰很多。
+如果这个边界定住，后续你会发现哪些代码属于 Jupyter 适配、哪些属于 Pigent 第一方 Runtime、哪些属于 Pipyter 产品集成，会清晰很多。

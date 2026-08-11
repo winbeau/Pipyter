@@ -19,10 +19,14 @@
 
 ## Persistence
 
-- Secret credentials: `~/.config/pipyter/credentials.json`, mode `0600`.
+- Pipyter account/node credentials: OS keyring or a separately scoped restrictive control-plane credential backend; do not use the Pigent provider store.
+- Pigent provider/model settings: `${XDG_CONFIG_HOME:-~/.config}/pipyter/pigent/settings.json`, mode `0600`.
+- Pigent provider API addresses and credentials: `${XDG_CONFIG_HOME:-~/.config}/pipyter/pigent/auth.json`, mode `0600`.
 - Project metadata: `<project>/.pipyter/project.toml`.
 - Runtime state: `<project>/.pipyter/runtime.json`.
 - Runtime logs: `<project>/.pipyter/logs/`.
+
+The follow-on Pigent plan permits no `models.json`, `models-store.json`, project model override, or automatic `.beaupi` inheritance; see [User installation and Pigent model configuration](../pigent-v0.1/09-user-install-model-config.md).
 
 ## Safety
 

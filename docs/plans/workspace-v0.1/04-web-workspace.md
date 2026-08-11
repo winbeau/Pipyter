@@ -6,7 +6,7 @@
 - `left`: activity strip plus Files, Running and Outline panels.
 - `main`: restorable document tabs for notebooks, editors, images and terminals.
 - `down`: terminal/output panel with collapse and resize-ready layout.
-- `right`: preserve the current Pilot sidebar and collapsed rail; do not add Agent backend work.
+- `right`: leave an integration slot for the follow-on 360 px Pigent panel; the old static Pilot panel/rail is not preserved as a target.
 - `bottom`: connection, save, kernel, cursor, indentation and trust status.
 
 ## File browser
@@ -20,11 +20,12 @@
 - Toolbar: save, insert, cut/copy/paste, run-and-advance, interrupt, restart, run all and cell type.
 - Cells: command/edit focus, markdown/code types, insert/delete/duplicate/move, editable source, execution count.
 - Output: busy feedback, stream/result/error rendering, clear/collapse controls.
-- Preserve current notebook title, code examples, figure placeholder and Pilot toggle.
+- Preserve current notebook title, code examples and figure placeholder; Pigent/Terminal tab-bar toggles migrate under the dedicated Pigent UI plan.
 
 ## Terminal and running
 
-- Terminal tabs, prompt input, history, clear and close.
+- Workspace v0.1 may retain the existing basic command surface as a baseline.
+- The follow-on Pigent migration replaces it with persistent PTY-backed Shell sessions, tabs, streaming, resize, maximize, close and split-pane behavior.
 - Running panel lists kernels and terminal sessions with per-item/all shutdown actions.
 - Status bar mirrors active document, kernel and connection state.
 

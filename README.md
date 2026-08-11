@@ -8,7 +8,31 @@ AI-native scientific workspace built around Jupyter, remote compute, and agent-a
 - `scripts/` — local development helpers.
 - `AGENT.md` — architecture and contribution guidance.
 - `draft.md` — current product and interaction draft.
-- `engines/` — local upstream JupyterLab and BeauPi checkouts; intentionally ignored by this repository.
+- `engines/` — ignored local source/reference checkouts; normal build/runtime code must not depend on them.
+- `packages/pigent/` — planned tracked first-party Pigent AI/Agent/runtime/host source copied from the local BeauPi tree and then maintained directly in Pipyter.
+
+## Architecture plans
+
+- [Workspace v0.1](docs/plans/workspace-v0.1/README.md)
+- [Pigent v0.1](docs/plans/pigent-v0.1/README.md) — ten Agent tools, Ask/Plan/Auto, full runtime-user execution, Pigent/Shell design migration, first-party BeauPi code embedding, and PyPI packaging
+
+## User installation
+
+```bash
+uv tool install pipyter
+pipyter --version
+```
+
+`uv tool install` is the recommended user-level path. Pigent ships in the same PyPI distribution; it does not require a global npm/BeauPi package or first-launch code download. Pigent execution currently requires Node.js `>=22.19`, while ordinary Workspace features remain usable when Node is unavailable.
+
+Pigent model/API configuration uses exactly:
+
+```text
+~/.config/pipyter/pigent/settings.json
+~/.config/pipyter/pigent/auth.json
+```
+
+`settings.json` selects providers/models and stores non-secret model/protocol definitions; `auth.json` stores provider API addresses plus API-key/OAuth credentials. Pipyter does not use `models.json`, `models-store.json`, or automatically inherit `~/.beaupi/` configuration. `XDG_CONFIG_HOME` is respected when set.
 
 ## Web development
 
