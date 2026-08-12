@@ -55,7 +55,7 @@ export type OptimisticUserMessage = {
 export type SurfaceState = 'queued' | 'running' | 'waiting_for_user' | 'succeeded' | 'failed' | 'cancelled'
 
 export type ToolSurfaceAction = {
-  id: 'copy' | 'download' | 'open' | 'reveal' | 'expand'
+  id: 'copy' | 'download' | 'open' | 'reveal'
   label: string
   href?: string
   value?: string

@@ -19,6 +19,7 @@ export type WorkspaceSummary = {
   project_id: string
   name: string
   root_name: string
+  root?: string | null
   kernel_status: KernelStatus
   connection_status: ConnectionStatus
   open_documents: string[]

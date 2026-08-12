@@ -9,6 +9,7 @@ The repository-level `design/` prototypes have been translated into native React
 | `PageHome.dc.html` | `pages/HomeDesign.tsx` + `../../pages/HomePage.tsx` |
 | `PageWorkspace.dc.html` | `pages/WorkspaceDesign.tsx` + `../../pages/WorkspacePage.tsx` |
 | Pigent page | `../../pigent/PigentPageView.tsx` + shared Pigent components |
+| Pigent tool-call experience (`#/pigent`) | `../pages/DesignPage.tsx` + `components/DesignToolCall.tsx` + the shared `ToolSurfaceModel` contract |
 | `PageFigures.dc.html` | `pages/FiguresDesign.tsx` + `../../pages/FiguresPage.tsx` |
 | `PageSettings.dc.html` | `pages/SettingsDesign.tsx` + `../../pages/SettingsPage.tsx` |
 | `Pipyter Final.dc.html` | `../../App.tsx` + `../../components/NavigationRail.tsx` |

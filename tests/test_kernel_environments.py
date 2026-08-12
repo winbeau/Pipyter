@@ -117,6 +117,39 @@ def test_operation_cancel_settles_and_stops_child_process(tmp_path, monkeypatch)
     asyncio.run(scenario())
 
 
+def test_cancel_for_session_only_cancels_owned_operations(tmp_path):
+    registry = KernelEnvironmentRegistry(tmp_path / "config")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    async def scenario():
+        operations = OperationManager(registry, workspace)
+        first_environment = registry.reserve_temporary({"python": "3.12", "ttl_seconds": 900})
+        second_environment = registry.reserve_temporary({"python": "3.12", "ttl_seconds": 900})
+        owned = operations._accepted("test.owned", first_environment["id"], "pigent_owned", "tool-owned")
+        other = operations._accepted("test.other", second_environment["id"], "pigent_other", "tool-other")
+
+        async def pending(operation):
+            try:
+                await operations._set(operation, state="running", phase="prepare")
+                await asyncio.Future()
+            except asyncio.CancelledError:
+                await asyncio.shield(operations._finish(operation, "cancelled", "cancelled"))
+
+        operations._tasks[owned.operation_id] = asyncio.create_task(pending(owned))
+        operations._tasks[other.operation_id] = asyncio.create_task(pending(other))
+        while owned.state != "running" or other.state != "running":
+            await asyncio.sleep(0)
+
+        cancelled = await operations.cancel_for_session("pigent_owned")
+        assert [item.operation_id for item in cancelled] == [owned.operation_id]
+        assert operations.get(owned.operation_id).state == "cancelled"
+        assert operations.get(other.operation_id).state == "running"
+        await operations.shutdown()
+
+    asyncio.run(scenario())
+
+
 def test_conflicting_environment_operations_are_rejected_and_restart_reconciles(tmp_path, monkeypatch):
     registry = KernelEnvironmentRegistry(tmp_path / "config")
     workspace = tmp_path / "workspace"

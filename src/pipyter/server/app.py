@@ -177,7 +177,7 @@ def create_app(
     @app.get("/api/v1/pigent/artifacts/{artifact_id}")
     async def get_pigent_artifact(artifact_id: str, download: bool = Query(default=False)):
         try:
-            item = bridge.artifacts._items.get(artifact_id)
+            item = bridge.artifact(artifact_id)
             if item is None:
                 raise KeyError(artifact_id)
             raw = item.path.read_bytes()
@@ -245,6 +245,7 @@ def create_app(
             project_id=project.project_id,
             name=project.name,
             root_name=workspace_root.name or "workspace",
+            root=str(workspace_root),
             kernel_status=active_kernels[0].status if active_kernels else "idle",
             open_documents=[],
         )

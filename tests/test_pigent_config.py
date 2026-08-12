@@ -149,3 +149,32 @@ def test_ui_model_selection_is_catalog_driven_revisioned_and_uses_only_two_files
     with pytest.raises(PigentConfigError, match="model_configuration_required"):
         store.select_ui_model("custom", "anything", written.revision)
     assert {path.name for path in store.directory.iterdir()} == {"settings.json", "auth.json"}
+
+
+def test_model_catalog_preserves_official_builtin_ids_and_custom_names(tmp_path):
+    store = PigentConfigStore(tmp_path)
+    store.write_settings({
+        "version": 1,
+        "defaultProvider": "deepseek",
+        "defaultModel": "deepseek-v4-flash",
+        "models": {"providers": {
+            "deepseek": {"models": [
+                {"id": "deepseek-v4-flash", "name": "ds-v4-flash"},
+                {"id": "deepseek-v4-pro", "name": "pro"},
+                {"id": "private-research", "name": "Research Preview"},
+            ]},
+            "openai": {"models": [
+                {"id": "gpt-5.6-sol", "name": "sol"},
+                {"id": "gpt-5.6-terra", "name": "terra"},
+            ]},
+        }},
+    })
+    catalog = {(item["provider"], item["model"]): item for item in store.model_catalog()}
+
+    for item in PIGENT_UI_MODELS:
+        listed = catalog[(item["provider"], item["model"])]
+        assert listed["id"] == item["model"]
+        assert listed["label"] == item["model"]
+    custom = catalog[("deepseek", "private-research")]
+    assert custom["id"] == "Research Preview"
+    assert custom["label"] == "Research Preview"

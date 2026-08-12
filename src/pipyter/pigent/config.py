@@ -30,11 +30,11 @@ _FORBIDDEN_SETTING_KEYS = {
 }
 
 PIGENT_BUILTIN_MODELS: tuple[dict[str, str], ...] = (
-    {"id": "ds-v4-flash", "label": "ds-v4-flash", "provider": "deepseek", "model": "deepseek-v4-flash"},
-    {"id": "pro", "label": "pro", "provider": "deepseek", "model": "deepseek-v4-pro"},
+    {"id": "deepseek-v4-flash", "label": "deepseek-v4-flash", "provider": "deepseek", "model": "deepseek-v4-flash"},
+    {"id": "deepseek-v4-pro", "label": "deepseek-v4-pro", "provider": "deepseek", "model": "deepseek-v4-pro"},
     {"id": "gpt-5.6-luna", "label": "gpt-5.6-luna", "provider": "openai", "model": "gpt-5.6-luna"},
-    {"id": "terra", "label": "terra", "provider": "openai", "model": "gpt-5.6-terra"},
-    {"id": "sol", "label": "sol", "provider": "openai", "model": "gpt-5.6-sol"},
+    {"id": "gpt-5.6-sol", "label": "gpt-5.6-sol", "provider": "openai", "model": "gpt-5.6-sol"},
+    {"id": "gpt-5.6-terra", "label": "gpt-5.6-terra", "provider": "openai", "model": "gpt-5.6-terra"},
 )
 PIGENT_UI_MODELS = PIGENT_BUILTIN_MODELS  # compatibility display catalog, not selection authority
 
@@ -390,6 +390,11 @@ class PigentConfigStore:
                     if not isinstance(model, dict) or not isinstance(model.get("id"), str):
                         continue
                     model_id = model["id"]
+                    # Built-in product models always use their official model ID
+                    # in the UI. Configured names remain available only for
+                    # genuinely custom models.
+                    if (provider, model_id) in by_pair:
+                        continue
                     by_pair[(provider, model_id)] = {
                         "id": str(model.get("name") or model_id),
                         "label": str(model.get("name") or model_id),

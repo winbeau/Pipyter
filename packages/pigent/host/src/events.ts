@@ -32,6 +32,7 @@ export class EventEmitter {
   private readonly sessionId: string;
   private readonly send: (event: StableEvent) => void;
   private assistantText = "";
+  private assistantThinking = "";
   private assistantMessageId: string | null = null;
   private correlation: Record<string, string> = {};
   private readonly pendingCorrelations: Array<{ client_message_id: string; run_id: string; turn_id: string }> = [];
@@ -56,6 +57,7 @@ export class EventEmitter {
         if (event.message?.role === "user") this.correlation = this.pendingCorrelations.shift() ?? this.correlation;
         if (event.message?.role === "assistant") {
           this.assistantText = "";
+          this.assistantThinking = "";
           this.assistantMessageId = randomUUID();
         }
         return;
@@ -74,14 +76,26 @@ export class EventEmitter {
           this.emit("error", { code: "provider_error", category,
             message: status ? `Provider request failed with HTTP ${status}` : "Provider request failed" });
           this.assistantText = "";
+          this.assistantThinking = "";
           this.assistantMessageId = null;
           return;
         }
         const text = Array.isArray(event.message.content)
           ? event.message.content.filter((part: any) => part?.type === "text").map((part: any) => part.text).join("") : "";
+        const thinking = Array.isArray(event.message.content)
+          ? event.message.content.filter((part: any) => part?.type === "thinking" && part.redacted !== true).map((part: any) => part.thinking).join("") : "";
+        if (event.type === "message_update" && thinking) {
+          const thinkingDelta = thinking.startsWith(this.assistantThinking) ? thinking.slice(this.assistantThinking.length) : thinking;
+          this.assistantThinking = thinking;
+          if (thinkingDelta) this.emit("assistant.thinking", { text: thinkingDelta, delta: true, message_id: messageId });
+        } else if (thinking && thinking !== this.assistantThinking) {
+          this.emit("assistant.thinking", { text: thinking, delta: false, message_id: messageId });
+          this.assistantThinking = "";
+        }
         if (!text) {
           if (event.type === "message_end") {
             this.assistantText = "";
+            this.assistantThinking = "";
             this.assistantMessageId = null;
           }
           return;
@@ -93,6 +107,7 @@ export class EventEmitter {
         } else {
           if (text !== this.assistantText) this.emit("assistant.text", { text, delta: false, message_id: messageId });
           this.assistantText = "";
+          this.assistantThinking = "";
           this.assistantMessageId = null;
         }
         return;
@@ -104,7 +119,7 @@ export class EventEmitter {
       case "tool_execution_end":
         this.emit("tool.end", { tool_call_id: event.toolCallId, tool: event.toolName,
           status: event.isError ? "failed" : "completed", result: event.result }); return;
-      case "agent_settled": this.assistantText = ""; this.assistantMessageId = null; this.emit("settled"); this.correlation = {}; return;
+      case "agent_settled": this.assistantText = ""; this.assistantThinking = ""; this.assistantMessageId = null; this.emit("settled"); this.correlation = {}; return;
       default: return; // raw copied-runtime event names never cross the host protocol
     }
   }

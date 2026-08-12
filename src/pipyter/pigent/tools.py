@@ -44,7 +44,12 @@ def resolve_target(workspace: Path, value: str | os.PathLike[str] | None, *, def
         raise ToolFailure("invalid_path", "Path must be a non-empty string without NUL bytes")
     try:
         requested = Path(raw).expanduser()
-        return (requested if requested.is_absolute() else workspace / requested).resolve(strict=False)
+        resolved = (requested if requested.is_absolute() else workspace / requested).resolve(strict=False)
+        try:
+            resolved.relative_to(workspace.resolve())
+        except ValueError as error:
+            raise ToolFailure("permission_denied", "Path must stay inside the Workspace") from error
+        return resolved
     except (OSError, RuntimeError, ValueError) as error:
         raise ToolFailure("invalid_path", f"Invalid path: {raw}") from error
 
@@ -253,7 +258,14 @@ class BashToolService:
         if arguments.get("interactive") is True:
             shell_session_id = None
             if self.terminal_sessions is not None:
-                relative_cwd = cwd.relative_to(self.workspace).as_posix() or "."
+                terminal_root = Path(getattr(self.terminal_sessions, "root", self.workspace)).expanduser().resolve()
+                try:
+                    relative_cwd = cwd.relative_to(terminal_root).as_posix() or "."
+                except ValueError as error:
+                    raise ToolFailure(
+                        "permission_denied",
+                        "Interactive shell directory must stay inside the Runtime Workspace",
+                    ) from error
                 attached = self.terminal_sessions.attach_command(command, cwd=relative_cwd)
                 shell_session_id = attached.id
             interaction = {"kind": "pty_handoff", "summary": "Open the Shell to continue",

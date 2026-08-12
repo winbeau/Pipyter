@@ -21,6 +21,7 @@ class WorkspaceSummary(BaseModel):
     project_id: str
     name: str
     root_name: str
+    root: str | None = None
     kernel_status: str = "idle"
     connection_status: str = "connected"
     open_documents: list[str] = Field(default_factory=list)

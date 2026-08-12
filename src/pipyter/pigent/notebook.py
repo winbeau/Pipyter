@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import difflib
 import json
 import uuid
 from collections import defaultdict
@@ -63,6 +64,8 @@ class NotebookService:
             changed = True
             if action == "update_cell":
                 cell, index = self._find(notebook, arguments.get("cell_id"))
+                old_source = str(cell.source)
+                cell_id = cell.id
                 supplied = any(key in arguments for key in ("source", "cell_type", "metadata", "clear_outputs"))
                 if not supplied:
                     raise ToolFailure("invalid_request", "update_cell requires at least one changed field")
@@ -85,7 +88,10 @@ class NotebookService:
                 if arguments.get("clear_outputs") and cell.cell_type == "code":
                     cell.outputs = []
                     cell.execution_count = None
-                result = {"cell": self._cell_data(cell, index, True)}
+                result = {
+                    "cell": self._cell_data(cell, index, True),
+                    "diff": self._source_diff(path, cell_id, old_source, str(cell.source)),
+                }
             elif action in {"insert_cell", "add_markdown"}:
                 cell_type = "markdown" if action == "add_markdown" else arguments.get("cell_type", "code")
                 source = arguments.get("source", "")
@@ -94,14 +100,18 @@ class NotebookService:
                 cell = self._new_cell(cell_type, source)
                 index = self._position(notebook, arguments.get("position", {"kind": "end"}))
                 notebook.cells.insert(index, cell)
-                result = {"cell": self._cell_data(cell, index, True)}
+                result = {
+                    "cell": self._cell_data(cell, index, True),
+                    "diff": self._source_diff(path, cell.id, "", str(cell.source), created=True),
+                }
             elif action == "delete_cell":
                 cell, index = self._find(notebook, arguments.get("cell_id"))
                 deleted = self._cell_data(cell, index, False)
                 notebook.cells.pop(index)
                 result = {"deleted": deleted,
                           "previous_cell_id": notebook.cells[index - 1].id if index > 0 else None,
-                          "next_cell_id": notebook.cells[index].id if index < len(notebook.cells) else None}
+                          "next_cell_id": notebook.cells[index].id if index < len(notebook.cells) else None,
+                          "diff": self._source_diff(path, cell.id, str(cell.source), "", deleted=True)}
             elif action == "move_cell":
                 cell, old_index = self._find(notebook, arguments.get("cell_id"))
                 notebook.cells.pop(old_index)
@@ -125,9 +135,15 @@ class NotebookService:
                         cell.execution_count = None
                 result = {"cleared_cell_ids": [cell.id for cell in targets]}
             if not changed:
-                return success(f"Notebook {action} was a no-op", data={**result, "revision": before}, before=before, after=before)
+                return success(
+                    f"Notebook {action} was a no-op",
+                    data={**result, "path": public_path(self.workspace, path), "revision": before},
+                    before=before,
+                    after=before,
+                )
             new_raw = self._save(path, notebook)
             after = revision_bytes(new_raw)
+            result["path"] = public_path(self.workspace, path)
             result["revision"] = after
             return success(f"Notebook {action} completed", data=result, before=before, after=after)
 
@@ -153,7 +169,8 @@ class NotebookService:
             raise ToolFailure("execution_timeout", str(error), True) from error
         outputs = [self._kernel_output(item) for item in response.outputs]
         if not arguments.get("save_outputs", True):
-            return success(f"Ran cell {cell_id}", data={"cell_id": cell_id, "execution_count": response.execution_count,
+            return success(f"Ran cell {cell_id}", data={"path": public_path(self.workspace, path), "cell_id": cell_id,
+                                                              "index": index, "execution_count": response.execution_count,
                                                               "outputs": outputs, "revision": before})
         async with self._locks[path]:
             current, current_raw, _ = self._load(path)
@@ -167,7 +184,8 @@ class NotebookService:
             new_raw = self._save(path, current)
             after = revision_bytes(new_raw)
             return success(f"Ran and saved cell {cell_id}",
-                           data={"cell": self._cell_data(current_cell, current_index, True), "revision": after},
+                           data={"path": public_path(self.workspace, path),
+                                 "cell": self._cell_data(current_cell, current_index, True), "revision": after},
                            before=before, after=after)
 
     def _load(self, path: Path) -> tuple[NotebookNode, bytes, bool]:
@@ -223,6 +241,32 @@ class NotebookService:
         if expected != current:
             raise ToolFailure("revision_conflict", f"Expected {expected}, current {current}", True,
                               {"expected": expected, "current": current})
+
+    def _source_diff(
+        self,
+        path: Path,
+        cell_id: str,
+        before: str,
+        after: str,
+        *,
+        created: bool = False,
+        deleted: bool = False,
+    ) -> str:
+        """Return a display-safe unified diff for one cell's source."""
+        label = f"{public_path(self.workspace, path)}#cell={cell_id}"
+        return "".join(difflib.unified_diff(
+            self._diff_lines(before),
+            self._diff_lines(after),
+            fromfile="/dev/null" if created else label,
+            tofile="/dev/null" if deleted else label,
+        ))
+
+    @staticmethod
+    def _diff_lines(source: str) -> list[str]:
+        lines = source.splitlines(keepends=True)
+        if lines and not lines[-1].endswith(("\n", "\r")):
+            lines[-1] += "\n"
+        return lines
 
     @staticmethod
     def _find(notebook: NotebookNode, cell_id: Any) -> tuple[NotebookNode, int]:

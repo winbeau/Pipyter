@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import os
+from pathlib import Path
+
 
 def test_health(client, project):
     response = client.get("/api/v1/health")
@@ -11,12 +14,22 @@ def test_health(client, project):
     assert body["workspace_id"] == project.workspace_id
 
 
+def test_runtime_pigent_config_is_isolated_from_home(client, tmp_path):
+    store = client.app.state.pigent_config
+    expected_root = (tmp_path / "config").resolve()
+    assert store.root == expected_root
+    assert store.directory == expected_root / "pigent"
+    assert Path(os.environ["PIPYTER_CONFIG_HOME"]).resolve() == expected_root
+    assert store.directory != (Path.home() / ".config" / "pipyter" / "pigent").resolve()
+
+
 def test_workspace_summary(client, project):
     response = client.get("/api/v1/workspace")
     assert response.status_code == 200
     body = response.json()
     assert body["name"] == "test-project"
     assert body["root_name"] == project.root.name
+    assert body["root"] == str(project.root)
     assert body["connection_status"] == "connected"
     assert body["open_documents"] == []
 

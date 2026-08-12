@@ -149,6 +149,17 @@ class OperationManager:
         await asyncio.gather(task, return_exceptions=True)
         return self.get(operation_id)
 
+    async def cancel_for_session(self, session_id: str) -> list[OperationEnvelope]:
+        """Cancel every still-cancellable operation owned by a Pigent session."""
+        operation_ids = [
+            operation.operation_id
+            for operation in self._operations.values()
+            if operation.session_id == session_id
+            and operation.state not in _TERMINAL_STATES
+            and operation.cancellable
+        ]
+        return [await self.cancel(operation_id) for operation_id in operation_ids]
+
     def _accepted(self, kind: str, environment_id: str, session_id: str | None, tool_call_id: str | None) -> OperationEnvelope:
         operation_id = "op_" + uuid.uuid4().hex
         self._reserve(environment_id, operation_id)
@@ -266,10 +277,29 @@ class OperationManager:
 
     async def _run(self, operation: OperationEnvelope, argv: list[str], *, cwd: Path | None = None, timeout: float = 900) -> tuple[int, str, str]:
         try:
+            # Keep uv's cache isolated per Runtime.  A test or a second local
+            # Runtime may intentionally use a temporary HOME; sharing uv's
+            # global cache in that situation can leave a stale lock behind and
+            # stall environment provisioning indefinitely.
+            child_env = sanitized_child_env()
+            uv_cache = self.environments.root / "uv-cache"
+            uv_cache.mkdir(parents=True, exist_ok=True, mode=0o700)
+            os.chmod(uv_cache, 0o700)
+            # uv may inherit a user cache setting from a parent Runtime.  The
+            # per-runtime directory must win so provisioning cannot wait on a
+            # lock owned by another process or another temporary HOME.
+            child_env["UV_CACHE_DIR"] = str(uv_cache)
+            # Resolve Python from the Runtime's uv-managed installation before
+            # invoking `uv venv`.  With an isolated HOME uv otherwise attempts
+            # a fresh interpreter download for every Runtime and can spend the
+            # entire operation timeout on that download.
+            uv_python_dir = os.environ.get("UV_PYTHON_INSTALL_DIR") or str(Path.home() / ".local" / "share" / "uv" / "python")
+            if Path(uv_python_dir).is_dir():
+                child_env["UV_PYTHON_INSTALL_DIR"] = uv_python_dir
             process = await asyncio.create_subprocess_exec(
                 *argv,
                 cwd=cwd,
-                env=sanitized_child_env(),
+                env=child_env,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 start_new_session=os.name == "posix",

@@ -57,24 +57,45 @@ def test_nbformat_validity_stable_ids_and_all_document_actions(tmp_path):
 
     updated = run(service.dispatch({"action": "update_cell", "path": "analysis.ipynb", "cell_id": cell_id,
                                     "expected_revision": revision, "source": "x = 2\nprint(x)"}))
+    assert updated.data["path"] == "analysis.ipynb"
+    assert f"--- analysis.ipynb#cell={cell_id}" in updated.data["diff"]
+    assert f"+++ analysis.ipynb#cell={cell_id}" in updated.data["diff"]
+    assert "-x = 1\n" in updated.data["diff"]
+    assert "+x = 2\n" in updated.data["diff"]
     revision = updated.revisions.after
     inserted = run(service.dispatch({"action": "insert_cell", "path": "analysis.ipynb", "expected_revision": revision,
                                      "cell_type": "code", "source": "y=3", "position": {"kind": "after", "cell_id": cell_id}}))
+    assert inserted.data["path"] == "analysis.ipynb"
     inserted_id = inserted.data["cell"]["cell_id"]
+    assert "--- /dev/null" in inserted.data["diff"]
+    assert f"+++ analysis.ipynb#cell={inserted_id}" in inserted.data["diff"]
+    assert "+y=3\n" in inserted.data["diff"]
     revision = inserted.revisions.after
     markdown = run(service.dispatch({"action": "add_markdown", "path": "analysis.ipynb", "expected_revision": revision,
                                      "source": "## Result", "position": {"kind": "end"}}))
+    assert markdown.data["path"] == "analysis.ipynb"
     markdown_id = markdown.data["cell"]["cell_id"]
+    assert "--- /dev/null" in markdown.data["diff"]
+    assert f"+++ analysis.ipynb#cell={markdown_id}" in markdown.data["diff"]
+    assert "+## Result\n" in markdown.data["diff"]
     revision = markdown.revisions.after
     moved = run(service.dispatch({"action": "move_cell", "path": "analysis.ipynb", "cell_id": inserted_id,
                                   "expected_revision": revision, "position": {"kind": "start"}}))
+    assert moved.data["path"] == "analysis.ipynb"
     revision = moved.revisions.after
     cleared = run(service.dispatch({"action": "clear_output", "path": "analysis.ipynb", "scope": "all",
                                     "expected_revision": revision}))
+    assert cleared.data["path"] == "analysis.ipynb"
     revision = cleared.revisions.after
     deleted = run(service.dispatch({"action": "delete_cell", "path": "analysis.ipynb", "cell_id": markdown_id,
                                     "expected_revision": revision}))
     assert deleted.ok
+    assert deleted.data["path"] == "analysis.ipynb"
+    assert f"--- analysis.ipynb#cell={markdown_id}" in deleted.data["diff"]
+    assert "+++ /dev/null" in deleted.data["diff"]
+    assert "-## Result\n" in deleted.data["diff"]
+    assert str(tmp_path) not in json.dumps([updated.model_dump(), inserted.model_dump(), markdown.model_dump(),
+                                            moved.model_dump(), cleared.model_dump(), deleted.model_dump()])
     nb = nbformat.read(path, as_version=4)
     nbformat.validate(nb)
     assert {cell.id for cell in nb.cells} == {cell_id, inserted_id}
@@ -131,11 +152,19 @@ def test_run_cell_persists_outputs_and_detects_source_conflict(tmp_path):
     result = run(service.run_cell({"path": "analysis.ipynb", "cell_id": "cell-a", "expected_revision": revision},
                                   kernel_id="kernel-current"))
     assert result.ok and kernels.calls[0] == ("kernel-current", "x = 1\nprint(x)")
+    assert result.data["path"] == "analysis.ipynb"
+    assert str(tmp_path) not in json.dumps(result.model_dump())
     saved = nbformat.read(path, as_version=4)
     assert saved.cells[0].outputs[0].text == "ran\n"
     assert saved.cells[0].execution_count == 1
 
     current_revision = result.revisions.after
+    unsaved = run(service.run_cell({"path": "analysis.ipynb", "cell_id": "cell-a",
+                                    "expected_revision": current_revision, "save_outputs": False},
+                                   kernel_id="kernel-current"))
+    assert unsaved.data["path"] == "analysis.ipynb"
+    assert unsaved.data["index"] == 0
+    assert str(tmp_path) not in json.dumps(unsaved.model_dump())
     kernels.block = True
 
     async def conflict():

@@ -24,6 +24,53 @@ describe('Pigent feed projection', () => {
     expect(tool?.kind === 'tool' && tool.surface.toolCallId).toBe('call-1')
   })
 
+  it('preserves Notebook action and path while unwrapping tool result details', () => {
+    const items = projectFeed([
+      event(1, 'tool.start', { tool_call_id: 'notebook-1', tool: 'notebook', arguments: { action: 'run_cell', path: 'analysis.ipynb', cell_id: 'cell-1' } }),
+      event(2, 'tool.end', { tool_call_id: 'notebook-1', tool: 'notebook', status: 'completed', result: { content: [{ type: 'text', text: 'done' }], details: { version: 1, ok: true, summary: 'Ran cell cell-1', data: { cell_id: 'cell-1', execution_count: 4 } } } }),
+    ], [])
+    const item = items.find((candidate) => candidate.kind === 'tool')
+    expect(item?.kind === 'tool' && item.surface.action).toBe('run_cell')
+    expect(item?.kind === 'tool' && item.surface.input).toEqual({ action: 'run_cell', path: 'analysis.ipynb', cell_id: 'cell-1' })
+    expect(item?.kind === 'tool' && item.surface.output).toMatchObject({ summary: 'Ran cell cell-1', data: { execution_count: 4 } })
+    expect(item?.kind === 'tool' && item.surface.actions.map((action) => action.value)).toContain('analysis.ipynb')
+  })
+
+  it('merges correlated Kernel operation events and follows their nested state', () => {
+    const operation = (state: string, phase: string) => ({
+      operation_id: 'op-1', tool_call_id: 'kernel-1', kind: 'kernel_environment.provision', state,
+      progress: { phase, completed: state === 'succeeded' ? 1 : 0, total: 1 },
+      receipt: state === 'succeeded' ? { outcome: 'success', summary: 'Environment ready' } : null,
+    })
+    const items = projectFeed([
+      event(1, 'tool.start', { tool_call_id: 'kernel-1', tool: 'kernel', arguments: { action: 'create_temporary', python: '3.12' } }),
+      event(2, 'tool.end', { tool_call_id: 'kernel-1', tool: 'kernel', status: 'completed', result: { details: { ok: true, summary: 'Operation accepted', data: { operation_id: 'op-1' } } } }),
+      event(3, 'operation.started', { operation: operation('running', 'create_venv') }),
+      event(4, 'operation.updated', { operation: operation('running', 'install_packages') }),
+      event(5, 'operation.ended', { operation: operation('succeeded', 'complete') }),
+    ], [])
+    const tools = items.filter((item) => item.kind === 'tool')
+    expect(tools).toHaveLength(1)
+    const item = tools[0]
+    expect(item?.kind === 'tool' && item.surface.toolCallId).toBe('kernel-1')
+    expect(item?.kind === 'tool' && item.surface.action).toBe('create_temporary')
+    expect(item?.kind === 'tool' && item.surface.state).toBe('succeeded')
+    expect(item?.kind === 'tool' && item.surface.operation).toMatchObject({ operation_id: 'op-1', progress: { phase: 'complete' } })
+    expect(item?.kind === 'tool' && item.surface.receipt).toMatchObject({ summary: 'Environment ready' })
+    expect(item?.kind === 'tool' && item.surface.endedAt).toBe(event(5, 'operation.ended').timestamp)
+  })
+
+  it('merges only correlated Kernel environment updates into a tool surface', () => {
+    const correlated = projectFeed([
+      event(1, 'tool.start', { tool_call_id: 'kernel-2', tool: 'kernel', arguments: { action: 'sync_environment', environment_id: 'env-1' } }),
+      event(2, 'kernel.environment.updated', { tool_call_id: 'kernel-2', environment: { id: 'env-1', status: 'syncing' } }),
+    ], [])
+    expect(correlated.filter((item) => item.kind === 'tool')).toHaveLength(1)
+    const item = correlated.find((candidate) => candidate.kind === 'tool')
+    expect(item?.kind === 'tool' && item.surface.state).toBe('running')
+    expect(projectFeed([event(3, 'kernel.environment.updated', { environment: { id: 'env-2', status: 'ready' } })], [])).toHaveLength(0)
+  })
+
   it('replaces an interaction request with its resolved receipt surface', () => {
     const required = event(1, 'interaction.required', { interaction: { version: 1, interaction_id: 'i1', session_id: 's', kind: 'review_request', summary: 'Approve?', choices: ['allow_once'] }, revision: 1 })
     const resolved = event(2, 'interaction.resolved', { interaction_id: 'i1', receipt: { outcome: 'success', summary: 'Approved' } })

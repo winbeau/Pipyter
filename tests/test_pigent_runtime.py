@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 
 from pipyter.pigent.config import PigentConfigStore
 from pipyter.pigent.manager import PigentManager
-from pipyter.pigent.sessions import ContextChange, MessageCreate, ModelChange, PigentSessionService, SessionCreate, SessionState, create_public_router
+from pipyter.pigent.sessions import ContextChange, MessageCreate, ModelChange, PigentSessionService, ProjectSessionCreate, SessionCreate, SessionState, create_public_router
 
 
 @pytest.fixture()
@@ -149,7 +149,7 @@ def test_mode_change_emits_once_and_lifecycle_state_is_authoritative(tmp_path):
         def __init__(self):
             self.sessions = {"pigent_mode": "ask"}
 
-        def register_session(self, session_id, *, mode):
+        def register_session(self, session_id, *, mode, workspace=None):
             self.sessions[session_id] = mode
 
         def update_session(self, session_id, *, mode):
@@ -261,7 +261,7 @@ def test_execution_identity_is_injected_into_host_session(tmp_path):
         def __init__(self):
             self.sessions = {}
 
-        def register_session(self, session_id, *, mode, active_document=None, active_kernel_id=None):
+        def register_session(self, session_id, *, mode, workspace=None, active_document=None, active_kernel_id=None):
             self.sessions[session_id] = mode
 
     config = PigentConfigStore(tmp_path / "config")
@@ -277,6 +277,221 @@ def test_execution_identity_is_injected_into_host_session(tmp_path):
     assert set(identity) == {"username", "uid", "home", "workspace"}
     assert identity["workspace"] == str(tmp_path)
     assert "execution_identity" not in service.summary(session)
+
+
+def test_project_session_endpoint_binds_validated_subworkspace_and_kernel(tmp_path):
+    class RecordingManager:
+        on_event = None
+
+        def __init__(self):
+            self.commands = []
+
+        def status(self):
+            return {"status": "running"}
+
+        async def command(self, command, **payload):
+            self.commands.append((command, payload))
+            return {"ok": True}
+
+    class Kernels:
+        def __init__(self):
+            self.started = []
+
+        def specs(self):
+            return [SimpleNamespace(name="python3")]
+
+        async def start_async(self, name, *, cwd=None):
+            self.started.append((name, Path(cwd)))
+            return SimpleNamespace(id="kernel-project")
+
+        async def shutdown_async(self, _kernel_id):
+            raise AssertionError("successful creation must not shut down the Kernel")
+
+    class RecordingBridge:
+        def __init__(self):
+            self.sessions = {}
+            self.kernels = Kernels()
+
+        def register_session(self, session_id, *, mode, workspace=None, active_document=None, active_kernel_id=None):
+            self.sessions[session_id] = SimpleNamespace(
+                mode=mode, workspace=Path(workspace), active_kernel_id=active_kernel_id,
+            )
+
+    project_dir = tmp_path / "projects" / "alpha"
+    project_dir.mkdir(parents=True)
+    config = PigentConfigStore(tmp_path / "config")
+    config.write_settings({"version": 1, "defaultProvider": "faux", "defaultModel": "m"})
+    manager, bridge = RecordingManager(), RecordingBridge()
+    service = PigentSessionService(tmp_path, SimpleNamespace(project_id="p", workspace_id="w"), bridge,
+                                   config, manager)  # type: ignore[arg-type]
+    app = FastAPI()
+    app.include_router(create_public_router(service))
+
+    response = TestClient(app).post("/api/v1/pigent/projects/sessions", json={
+        "mode": "auto", "workspace": "projects/alpha", "kernel_name": "python3",
+    })
+
+    assert response.status_code == 201
+    value = response.json()
+    assert value["project_workspace"] == "projects/alpha"
+    assert value["active_kernel_id"] == "kernel-project"
+    assert "workspace" not in value and "execution_identity" not in value
+    assert bridge.kernels.started == [("python3", project_dir)]
+    session = service.sessions[value["id"]]
+    assert bridge.sessions[session.id].workspace == project_dir
+    create_payload = next(payload for command, payload in manager.commands if command == "create_session")
+    assert create_payload["session"]["execution_identity"]["workspace"] == str(project_dir)
+
+    absolute = TestClient(app).post("/api/v1/pigent/projects/sessions", json={
+        "workspace": str(project_dir),
+    })
+    assert absolute.status_code == 201
+    assert absolute.json()["project_workspace"] == "projects/alpha"
+
+
+def test_project_session_rejects_escape_missing_file_and_unknown_kernel(tmp_path):
+    class Manager:
+        on_event = None
+
+        def status(self):
+            return {"status": "running"}
+
+        async def command(self, _command, **_payload):
+            return {"ok": True}
+
+    class Kernels:
+        def specs(self):
+            return [SimpleNamespace(name="python3")]
+
+        async def start_async(self, *_args, **_kwargs):
+            raise AssertionError("invalid requests must not start a Kernel")
+
+    bridge = SimpleNamespace(sessions={}, kernels=Kernels())
+    config = PigentConfigStore(tmp_path / "config")
+    config.write_settings({"version": 1, "defaultProvider": "faux", "defaultModel": "m"})
+    service = PigentSessionService(tmp_path, SimpleNamespace(project_id="p", workspace_id="w"), bridge,
+                                   config, Manager())  # type: ignore[arg-type]
+    app = FastAPI()
+    app.include_router(create_public_router(service))
+    client = TestClient(app)
+    (tmp_path / "plain.txt").write_text("x", encoding="utf-8")
+    external = tmp_path.parent / f"{tmp_path.name}-external"
+    external.mkdir(exist_ok=True)
+    symlink = tmp_path / "escaped-link"
+    try:
+        symlink.symlink_to(external, target_is_directory=True)
+    except OSError:
+        symlink = None
+
+    assert client.post("/api/v1/pigent/projects/sessions", json={"workspace": "../outside"}).status_code == 403
+    if symlink is not None:
+        assert client.post("/api/v1/pigent/projects/sessions", json={"workspace": "escaped-link"}).status_code == 403
+    assert client.post("/api/v1/pigent/projects/sessions", json={"workspace": "missing"}).status_code == 404
+    assert client.post("/api/v1/pigent/projects/sessions", json={"workspace": "plain.txt"}).status_code == 400
+    unknown = client.post("/api/v1/pigent/projects/sessions", json={
+        "workspace": ".", "kernel_name": "unknown",
+    })
+    assert unknown.status_code == 409
+    assert unknown.json()["detail"]["code"] == "kernel_unavailable"
+
+
+def test_project_session_kernel_is_rolled_back_when_agent_creation_fails(tmp_path):
+    class FailingManager:
+        on_event = None
+
+        def status(self):
+            return {"status": "running"}
+
+        async def command(self, command, **_payload):
+            if command == "create_session":
+                raise RuntimeError("host rejected session")
+            return {"ok": True}
+
+    class Kernels:
+        def __init__(self):
+            self.shutdown = []
+
+        def specs(self):
+            return [SimpleNamespace(name="python3")]
+
+        async def start_async(self, _name, *, cwd=None):
+            assert Path(cwd) == tmp_path
+            return SimpleNamespace(id="kernel-rollback")
+
+        async def shutdown_async(self, kernel_id):
+            self.shutdown.append(kernel_id)
+
+    class Bridge:
+        def __init__(self):
+            self.sessions = {}
+            self.kernels = Kernels()
+
+        def register_session(self, session_id, *, mode, workspace=None, active_document=None, active_kernel_id=None):
+            self.sessions[session_id] = SimpleNamespace(mode=mode)
+
+    config = PigentConfigStore(tmp_path / "config")
+    config.write_settings({"version": 1, "defaultProvider": "faux", "defaultModel": "m"})
+    bridge = Bridge()
+    service = PigentSessionService(tmp_path, SimpleNamespace(project_id="p", workspace_id="w"), bridge,
+                                   config, FailingManager())  # type: ignore[arg-type]
+    with pytest.raises(RuntimeError, match="host rejected"):
+        asyncio.run(service.create_project(ProjectSessionCreate(workspace=".", kernel_name="python3")))
+    assert bridge.kernels.shutdown == ["kernel-rollback"]
+    assert not service.sessions and not bridge.sessions
+
+
+def test_project_session_workspace_persists_and_context_uses_subworkspace(tmp_path):
+    class Manager:
+        on_event = None
+
+        def __init__(self):
+            self.commands = []
+
+        def status(self):
+            return {"status": "running"}
+
+        async def command(self, command, **payload):
+            self.commands.append((command, payload))
+            return {"ok": True}
+
+    class Bridge:
+        def __init__(self):
+            self.sessions = {}
+            self.kernels = SimpleNamespace(list=lambda: [])
+
+        def register_session(self, session_id, *, mode, workspace=None, active_document=None, active_kernel_id=None):
+            self.sessions[session_id] = SimpleNamespace(
+                mode=mode, workspace=Path(workspace), active_document=active_document, active_kernel_id=active_kernel_id,
+            )
+
+        def update_session(self, session_id, *, mode=None, active_document=None, clear_active_document=False,
+                           active_kernel_id=None, clear_active_kernel=False):
+            item = self.sessions[session_id]
+            if clear_active_document or active_document is not None:
+                item.active_document = active_document
+
+    project_dir = tmp_path / "projects" / "alpha"
+    project_dir.mkdir(parents=True)
+    (project_dir / "analysis.ipynb").write_text("{}", encoding="utf-8")
+    config = PigentConfigStore(tmp_path / "config")
+    config.write_settings({"version": 1, "defaultProvider": "faux", "defaultModel": "m"})
+    manager, bridge = Manager(), Bridge()
+    service = PigentSessionService(tmp_path, SimpleNamespace(project_id="p", workspace_id="w"), bridge,
+                                   config, manager)  # type: ignore[arg-type]
+    session = asyncio.run(service.create_project(ProjectSessionCreate(workspace="projects/alpha")))
+    restored_bridge = Bridge()
+    restored = PigentSessionService(tmp_path, SimpleNamespace(project_id="p", workspace_id="w"), restored_bridge,
+                                    config, Manager())  # type: ignore[arg-type]
+    restored_session = restored.sessions[session.id]
+    assert restored_session.workspace_path == "projects/alpha"
+    restored_session.execution_identity["workspace"] = str(tmp_path.parent)
+    asyncio.run(restored.change_context(restored_session, ContextChange(active_document="analysis.ipynb")))
+    assert restored_bridge.sessions[session.id].workspace == project_dir
+    assert restored_session.execution_identity["workspace"] == str(project_dir)
+    assert restored_session.active_document == "analysis.ipynb"
+    with pytest.raises(Exception) as caught:
+        asyncio.run(restored.change_context(restored_session, ContextChange(active_document="../../escape.ipynb")))
+    assert getattr(caught.value, "status_code", None) == 400
 
 
 def test_raw_host_ready_malformed_jsonl_commands_and_monotonic_events(tmp_path, built_host):
@@ -407,10 +622,34 @@ def test_host_stream_deltas_share_one_message_identifier(built_host):
     assert events[2]["payload"]["message_id"] != events[1]["payload"]["message_id"]
 
 
+def test_host_streams_thinking_separately_from_final_text(built_host):
+    script = """
+      import { EventEmitter } from './packages/pigent/host/dist/events.js';
+      const events = [];
+      const emitter = new EventEmitter('s', event => events.push(event));
+      const message = (thinking, text='') => ({role:'assistant', content:[{type:'thinking', thinking}, {type:'text', text}], stopReason:'pending', timestamp:1});
+      emitter.translate({type:'message_start', message:message('')});
+      emitter.translate({type:'message_update', message:message('Check PATH')});
+      emitter.translate({type:'message_update', message:message('Check PATH, then restart')});
+      emitter.translate({type:'message_end', message:{...message('Check PATH, then restart', 'Done'), stopReason:'stop'}});
+      console.log(JSON.stringify(events));
+    """
+    output = subprocess.run(
+        ["node", "--input-type=module", "-e", script], cwd=Path(__file__).parents[1],
+        capture_output=True, text=True, check=True,
+    )
+    events = json.loads(output.stdout)
+    thinking = [event for event in events if event["type"] == "assistant.thinking"]
+    text = [event for event in events if event["type"] == "assistant.text"]
+    assert [event["payload"]["text"] for event in thinking] == ["Check PATH", ", then restart"]
+    assert [event["payload"]["text"] for event in text] == ["Done"]
+    assert thinking[0]["payload"]["message_id"] == text[0]["payload"]["message_id"]
+
+
 def test_host_tasks_and_delegate_adapters(built_host):
     script = """
       import { createToolDefinitions } from './packages/pigent/host/dist/tools.js';
-      import { agentProfile, dynamicTasksInput, publicTasks } from './packages/pigent/host/dist/main.js';
+      import { agentProfile, dynamicTasksInput, mainAgentSystemPrompt, publicTasks } from './packages/pigent/host/dist/main.js';
       let active = 0, maxActive = 0;
       const calls = [];
       const context = {
@@ -441,6 +680,7 @@ def test_host_tasks_and_delegate_adapters(built_host):
         calls, maxActive, delegated: delegated.map(item => item.details.data.result),
         publicSnapshot: publicTasks(snapshot),
         casInput: dynamicTasksInput({expected_revision:'9', root:{title:'Next', children:[{id:'c', title:'C', status:'done'}]}}, snapshot),
+        mainSystemPrompt: mainAgentSystemPrompt('Execution identity (authoritative): username=test.'),
         profiles: [agentProfile('analysis', false), agentProfile('implementation', true)],
       }));
     """
@@ -457,6 +697,11 @@ def test_host_tasks_and_delegate_adapters(built_host):
     assert [item["status"] for item in value["publicSnapshot"]["root"]["children"]] == ["running", "done"]
     assert value["casInput"]["expectedRevision"] == 9
     assert value["casInput"]["tasks"][0]["status"] == "completed"
+    prompt_guidance = "Do not use emoji by default. Do not decorate headings or list items with emoji."
+    assert prompt_guidance in value["mainSystemPrompt"]
+    assert "never use more than one emoji in the entire response" in value["mainSystemPrompt"]
+    assert all(prompt_guidance in profile["systemPrompt"] for profile in value["profiles"])
+    assert all("never use more than one emoji in the entire response" in profile["systemPrompt"] for profile in value["profiles"])
     assert all("delegate" not in profile["toolAllowlist"] for profile in value["profiles"])
     assert value["profiles"][0]["allowFileModifications"] is False
     assert value["profiles"][1]["allowFileModifications"] is True

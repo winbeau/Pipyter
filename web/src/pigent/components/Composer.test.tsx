@@ -29,4 +29,33 @@ describe('Composer', () => {
     fireEvent.keyDown(input, { key: 'Enter', shiftKey: true })
     expect(input).toHaveValue('one')
   })
+
+  it('uses unified dropdowns and refreshes models when the model control opens', async () => {
+    const onRefreshModels = vi.fn().mockResolvedValue(undefined)
+    render(<Composer {...props} onRefreshModels={onRefreshModels} onSend={vi.fn()} onStop={vi.fn()} />)
+    expect(screen.getByRole('combobox', { name: 'Pigent mode' })).toHaveTextContent('Ask')
+    await userEvent.click(screen.getByRole('combobox', { name: 'Pigent model' }))
+    expect(onRefreshModels).toHaveBeenCalledOnce()
+  })
+
+  it('supports keyboard navigation and Escape in the custom mode listbox', async () => {
+    const onMode = vi.fn()
+    render(<Composer {...props} onMode={onMode} onSend={vi.fn()} onStop={vi.fn()} />)
+    const mode = screen.getByRole('combobox', { name: 'Pigent mode' })
+    mode.focus()
+    await userEvent.keyboard('{ArrowDown}{ArrowDown}{Enter}')
+    expect(onMode).toHaveBeenCalledWith('plan')
+    await userEvent.click(mode)
+    expect(screen.getByRole('listbox', { name: 'Pigent mode options' })).toBeVisible()
+    await userEvent.keyboard('{Escape}')
+    expect(screen.queryByRole('listbox', { name: 'Pigent mode options' })).toBeNull()
+  })
+
+  it('closes a custom listbox when clicking outside', async () => {
+    render(<Composer {...props} onSend={vi.fn()} onStop={vi.fn()} />)
+    await userEvent.click(screen.getByRole('combobox', { name: 'Pigent mode' }))
+    expect(screen.getByRole('listbox', { name: 'Pigent mode options' })).toBeVisible()
+    await userEvent.click(screen.getByLabelText('Message Pigent'))
+    expect(screen.queryByRole('listbox', { name: 'Pigent mode options' })).toBeNull()
+  })
 })

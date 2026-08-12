@@ -2,6 +2,30 @@
 
 All notable changes to Pipyter are documented in this file.
 
+## [0.3.0] - 2026-08-12
+
+### Added
+
+- Added the unified Pigent conversation page at `#/pigent`, replacing the
+  separate Design route while preserving a compatibility redirect.
+- Added real project-session creation with validated workspace subdirectories,
+  optional Kernel selection, ownership checks, and cleanup of project-owned
+  Kernels.
+- Added Claude-like compact tool activity with Read/Write/Update aliases,
+  passive Read/View/Inspect/Bash summaries, streaming tool shimmer states, and
+  Jupyter-style Notebook cells with Markdown and rich output rendering.
+- Added the Chinese project/session sidebar, context-menu session management,
+  automatic conversation titles, and model/capability refresh behavior.
+
+### Changed
+
+- Removed the legacy standalone Pigent page and Design navigation item.
+- Standardized official model IDs (`deepseek-v4-flash`, `deepseek-v4-pro`, and
+  the GPT 5.6 catalog entries) in the model catalog.
+- Isolated managed Kernel `uv` caches per Runtime to avoid cross-runtime cache
+  lock contention.
+
+
 ## [0.2.0] - 2026-08-12
 
 ### Added

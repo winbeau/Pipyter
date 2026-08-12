@@ -1,10 +1,29 @@
-import { Check, Copy, Orbit } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
+function ThinkingLine({ text, compact }: { text: string; compact: boolean }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [truncated, setTruncated] = useState(false)
+
+  useEffect(() => {
+    const node = ref.current
+    if (!node) return
+    const measure = () => setTruncated(node.scrollWidth > node.clientWidth + 1)
+    measure()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(measure)
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [text])
+
+  return <div ref={ref} className={`pigent-assistant-thinking${compact ? ' is-compact' : ''}${truncated ? ' is-truncated' : ''}`} title={truncated ? text : undefined}>{text}</div>
+}
+
 export function AssistantMessage({ text, timestamp, thinking = false, compact = false }: { text: string; timestamp: string; thinking?: boolean; compact?: boolean }) {
-  const [copied, setCopied] = useState(false)
-  const copy = async () => { await navigator.clipboard.writeText(text); setCopied(true); window.setTimeout(() => setCopied(false), 1200) }
-  return <article className={`pigent-assistant-event${compact ? ' is-compact' : ''}${thinking ? ' is-thinking' : ''}`}><Orbit aria-hidden="true" /><div><div className="pigent-message-meta"><strong>{thinking ? 'Pigent status' : 'Pigent'}</strong><time dateTime={timestamp}>{new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time><button type="button" onClick={() => void copy()} aria-label="Copy assistant message">{copied ? <Check /> : <Copy />}</button></div><ReactMarkdown remarkPlugins={[remarkGfm]} skipHtml components={{ a: ({ href, children }) => <a href={href} target="_blank" rel="noreferrer noopener">{children}<span className="sr-only"> (opens in a new tab)</span></a>, code: ({ children, className }) => <code className={className}>{children}</code> }}>{text}</ReactMarkdown></div></article>
+  if (thinking) return <ThinkingLine text={text} compact={compact} />
+
+  // Final assistant output remains a normal Markdown message, without a
+  // repeated Pigent logo or a secondary copy control in the conversation.
+  return <article className={`pigent-assistant-event${compact ? ' is-compact' : ''}`} data-timestamp={timestamp}><ReactMarkdown remarkPlugins={[remarkGfm]} skipHtml components={{ a: ({ href, children }) => <a href={href} target="_blank" rel="noreferrer noopener">{children}<span className="sr-only"> (opens in a new tab)</span></a>, code: ({ children, className }) => <code className={className}>{children}</code> }}>{text}</ReactMarkdown></article>
 }

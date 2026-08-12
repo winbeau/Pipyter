@@ -4,6 +4,7 @@ import asyncio
 import getpass
 import json
 import os
+import re
 import tempfile
 import uuid
 from dataclasses import dataclass, field
@@ -37,10 +38,33 @@ def _public_event_value(value: Any) -> Any:
     }
 
 
+def _automatic_session_title(content: str, limit: int = 48) -> str | None:
+    """Build a stable one-line title without making a second model call."""
+    text = re.sub(r"```[\s\S]*?```", " ", content)
+    text = re.sub(r"`([^`]*)`", r"\1", text)
+    text = re.sub(r"^\s{0,3}(?:#{1,6}|[-*+]|\d+[.)])\s+", "", text, flags=re.MULTILINE)
+    text = re.sub(r"\s+", " ", text).strip(" \t\r\n\"'`，。！？!?：:；;")
+    if not text:
+        return None
+    if len(text) <= limit:
+        return text
+    title = text[:limit].rstrip()
+    # Avoid a visibly broken English word when there is a useful boundary nearby.
+    boundary = max(title.rfind(" "), title.rfind("，"), title.rfind(","), title.rfind("。"))
+    if boundary >= max(12, limit // 2):
+        title = title[:boundary].rstrip(" ，,。")
+    return f"{title}…"
+
+
 class SessionCreate(BaseModel):
     mode: str = "ask"
     approval_preference: str = "automatic"
     title: str | None = None
+
+
+class ProjectSessionCreate(SessionCreate):
+    workspace: str = Field(min_length=1, max_length=4096)
+    kernel_name: str | None = Field(default=None, min_length=1, max_length=200)
 
 
 class MessageCreate(BaseModel):
@@ -108,6 +132,8 @@ class SessionState:
     turn_id: str | None = None
     accepted_messages: dict[str, dict[str, Any]] = field(default_factory=dict)
     interactions: dict[str, dict[str, Any]] = field(default_factory=dict)
+    workspace_path: str = "."
+    owned_kernel_id: str | None = None
 
 
 class PigentSessionService:
@@ -144,6 +170,8 @@ class PigentSessionService:
         }
         if session.active_kernel_id:
             value["active_kernel_id"] = session.active_kernel_id
+        if session.workspace_path != ".":
+            value["project_workspace"] = session.workspace_path
         return value
 
     def _persist(self, session: SessionState) -> None:
@@ -153,6 +181,7 @@ class PigentSessionService:
         payload["next_event_id"] = session.next_event_id
         payload["run_active"] = session.run_active
         payload["active_document_path"] = session.active_document
+        payload["owned_kernel_id"] = session.owned_kernel_id
         payload["accepted_messages"] = session.accepted_messages
         payload["interactions"] = session.interactions
         fd, temporary = tempfile.mkstemp(prefix=f".{session.id}.", dir=self.state_dir)
@@ -182,6 +211,8 @@ class PigentSessionService:
                 )
                 session.active_document = value.get("active_document_path")
                 session.active_kernel_id = value.get("active_kernel_id")
+                session.owned_kernel_id = value.get("owned_kernel_id")
+                session.workspace_path = value.get("project_workspace", ".")
                 session.run_id = value.get("run_id")
                 session.turn_id = value.get("turn_id")
                 session.accepted_messages = dict(value.get("accepted_messages") or {})
@@ -198,10 +229,19 @@ class PigentSessionService:
     async def _ensure_attached(self, session: SessionState) -> None:
         if session.host_attached and self.manager.status().get("status") == "running":
             return
+        session_workspace = self._session_workspace(session)
+        # Persisted execution identity is informational only. Re-authorize the
+        # session root on every attach so the Host and Python bridge cannot
+        # diverge after a state edit, symlink change, or Runtime relocation.
+        session.execution_identity = {
+            **session.execution_identity,
+            "workspace": str(session_workspace),
+        }
         if session.id not in self.bridge.sessions:
             self.bridge.register_session(
                 session.id,
                 mode=session.mode,
+                workspace=session_workspace,
                 active_document=session.active_document,
                 active_kernel_id=session.active_kernel_id,
             )
@@ -216,7 +256,31 @@ class PigentSessionService:
             session.model = {"provider": attached_model["provider"], "model": attached_model["model"], "baseUrl": None}
         session.host_attached = True
 
-    async def create(self, body: SessionCreate) -> SessionState:
+    def _resolve_project_workspace(self, value: str) -> tuple[Path, str]:
+        if "\x00" in value:
+            raise HTTPException(status_code=400, detail={"code": "invalid_path", "message": "Workspace path contains NUL"})
+        requested = Path(value).expanduser()
+        try:
+            candidate = requested if requested.is_absolute() else self.workspace / requested
+            unresolved = candidate.resolve(strict=False)
+            unresolved.relative_to(self.workspace.resolve())
+            resolved = candidate.resolve(strict=True)
+            relative = resolved.relative_to(self.workspace.resolve())
+        except FileNotFoundError as error:
+            raise HTTPException(status_code=404, detail={"code": "not_found", "message": "Project directory does not exist"}) from error
+        except (OSError, RuntimeError, ValueError) as error:
+            raise HTTPException(status_code=403, detail={"code": "permission_denied", "message": "Project directory must stay inside the Runtime Workspace"}) from error
+        if not resolved.is_dir():
+            raise HTTPException(status_code=400, detail={"code": "invalid_path", "message": "Project workspace must be a directory"})
+        return resolved, relative.as_posix() or "."
+
+    def _session_workspace(self, session: SessionState) -> Path:
+        resolved, _ = self._resolve_project_workspace(session.workspace_path)
+        return resolved
+
+    async def create(self, body: SessionCreate, *, workspace: Path | None = None,
+                     workspace_path: str = ".", active_kernel_id: str | None = None,
+                     owned_kernel_id: str | None = None) -> SessionState:
         try:
             mode = normalize_mode(body.mode)
             model = self.config.resolve_model()
@@ -230,20 +294,59 @@ class PigentSessionService:
             "username": getpass.getuser(),
             "uid": os.getuid() if hasattr(os, "getuid") else None,
             "home": str(Path.home()),
-            "workspace": str(self.workspace),
+            "workspace": str(workspace or self.workspace),
         }
         session = SessionState(session_id, mode, body.approval_preference, model, identity, body.title)
+        session.workspace_path = workspace_path
+        session.active_kernel_id = active_kernel_id
+        session.owned_kernel_id = owned_kernel_id
         async with self._lock:
             self.sessions[session_id] = session
-        self.bridge.register_session(session_id, mode=mode)
         try:
+            self.bridge.register_session(
+                session_id, mode=mode, workspace=workspace or self.workspace, active_kernel_id=active_kernel_id,
+            )
             await self._ensure_attached(session)
         except (PigentUnavailable, OSError) as error:
             self.sessions.pop(session_id, None)
+            self.bridge.sessions.pop(session_id, None)
             raise HTTPException(status_code=503, detail={"code": "service_unavailable", "message": str(error)}) from error
+        except Exception:
+            self.sessions.pop(session_id, None)
+            self.bridge.sessions.pop(session_id, None)
+            raise
         await self.emit(session, "session.created", {"session": self.summary(session)})
         self._persist(session)
         return session
+
+    async def create_project(self, body: ProjectSessionCreate) -> SessionState:
+        workspace, workspace_path = self._resolve_project_workspace(body.workspace)
+        kernel_id = None
+        if body.kernel_name:
+            kernels = getattr(self.bridge, "kernels", None)
+            if kernels is None:
+                raise HTTPException(status_code=503, detail={"code": "service_unavailable", "message": "Kernel service is unavailable"})
+            try:
+                available = {item.name for item in kernels.specs()}
+            except Exception as error:
+                raise HTTPException(status_code=503, detail={"code": "service_unavailable", "message": "Kernel specs are unavailable"}) from error
+            if body.kernel_name not in available:
+                raise HTTPException(status_code=409, detail={"code": "kernel_unavailable", "message": "Selected Kernel is unavailable"})
+            try:
+                kernel = await kernels.start_async(body.kernel_name, cwd=workspace)
+                kernel_id = kernel.id
+            except Exception as error:
+                raise HTTPException(status_code=409, detail={"code": "kernel_unavailable", "message": str(error)}) from error
+        try:
+            return await self.create(body, workspace=workspace, workspace_path=workspace_path,
+                                     active_kernel_id=kernel_id, owned_kernel_id=kernel_id)
+        except Exception:
+            if kernel_id:
+                try:
+                    await self.bridge.kernels.shutdown_async(kernel_id)
+                except Exception:
+                    pass
+            raise
 
     def get(self, session_id: str) -> SessionState:
         try:
@@ -342,6 +445,8 @@ class PigentSessionService:
             session.run_active = True
             session.run_id = run_id
             session.turn_id = turn_id
+            if not session.title:
+                session.title = _automatic_session_title(body.content)
             self._persist(session)
             try:
                 await self.manager.command(command, session_id=session.id, text=body.content,
@@ -439,13 +544,19 @@ class PigentSessionService:
         active_document = None
         if body.active_document:
             try:
-                resolved = (self.workspace / body.active_document).resolve()
-                active_document = resolved.relative_to(self.workspace).as_posix()
+                session_workspace = self._session_workspace(session)
+                resolved = (session_workspace / body.active_document).resolve()
+                active_document = resolved.relative_to(session_workspace).as_posix()
             except (OSError, ValueError) as error:
-                raise HTTPException(status_code=400, detail="active_document must stay inside the Workspace") from error
+                raise HTTPException(status_code=400, detail="active_document must stay inside the session Workspace") from error
         if body.active_kernel_id:
             kernels = getattr(self.bridge, "kernels", None)
-            if kernels is not None and not any(item.id == body.active_kernel_id for item in kernels.list()):
+            session_workspace = self._session_workspace(session)
+            owns_workspace = getattr(kernels, "owns_workspace", None) if kernels is not None else None
+            valid_kernel = any(item.id == body.active_kernel_id for item in kernels.list()) if kernels is not None else False
+            if valid_kernel and callable(owns_workspace):
+                valid_kernel = bool(owns_workspace(body.active_kernel_id, session_workspace))
+            if kernels is not None and not valid_kernel:
                 raise HTTPException(status_code=409, detail={"code": "kernel_unavailable", "message": "Active kernel is unavailable"})
         session.active_document = active_document
         session.active_kernel_id = body.active_kernel_id
@@ -499,6 +610,10 @@ def create_public_router(service: PigentSessionService) -> APIRouter:
     async def create_session(body: SessionCreate) -> dict[str, Any]:
         return service.summary(await service.create(body))
 
+    @router.post("/projects/sessions", status_code=201)
+    async def create_project_session(body: ProjectSessionCreate) -> dict[str, Any]:
+        return service.summary(await service.create_project(body))
+
     @router.get("/sessions")
     async def list_sessions(workspace_id: str | None = None, query: str | None = None,
                             before: str | None = None, limit: int = Query(default=50, ge=1, le=200)) -> list[dict[str, Any]]:
@@ -539,6 +654,11 @@ def create_public_router(service: PigentSessionService) -> APIRouter:
         try:
             await service.manager.command("delete_session", session_id=session_id)
         finally:
+            if session.owned_kernel_id:
+                try:
+                    await service.bridge.kernels.shutdown_async(session.owned_kernel_id)
+                except Exception:
+                    pass
             service.sessions.pop(session_id, None)
             service.bridge.sessions.pop(session_id, None)
             (service.state_dir / f"{session_id}.json").unlink(missing_ok=True)
@@ -556,6 +676,7 @@ def create_public_router(service: PigentSessionService) -> APIRouter:
         if not session.run_active:
             return {"accepted": True, "already_settled": True}
         await service.manager.command("abort", session_id=session.id, run_id=session.run_id, reason=body.reason)
+        await service.bridge.cancel_session(session.id)
         return {"accepted": True, "already_settled": False}
 
     @router.post("/interactions/{interaction_id}")

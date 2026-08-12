@@ -1,5 +1,5 @@
 import { Bot, CheckCircle2, CircleEllipsis, Code2, FileText, FlaskConical, Image, TerminalSquare, TriangleAlert } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import type { ArtifactRef, PigentEvent, ToolSurfaceModel } from '../types'
 import { SurfaceActions } from './actions'
 import { safeRecord, safeText } from './contract'
@@ -19,10 +19,9 @@ function facts(surface: ToolSurfaceModel) {
 }
 
 export function ToolSurface({ surface, density = 'comfortable' }: { surface: ToolSurfaceModel; density?: 'comfortable' | 'compact' }) {
-  const [expanded, setExpanded] = useState(false)
   const output = safeRecord(surface.output)
   const data = safeRecord(output.data)
-  const summary = safeText(output.summary, safeText(surface.raw.summary, `${surface.tool}${surface.action ? ` · ${surface.action}` : ''}`))
+  const summary = safeText(output.summary, safeText(surface.raw.summary, 'Working'))
   const diff = safeText(data.diff, safeText(surface.raw.diff))
   const stdout = safeText(data.stdout, safeText(data.output, safeText(surface.raw.output)))
   const stderr = safeText(data.stderr)
@@ -30,17 +29,28 @@ export function ToolSurface({ surface, density = 'comfortable' }: { surface: Too
   const receipt = safeRecord(surface.receipt)
   const operation = safeRecord(surface.operation)
   const progress = safeRecord(operation.progress)
-  return <article className={`pigent-card pigent-tool-surface is-${density} state-${surface.state}`} aria-busy={surface.state === 'running' || surface.state === 'queued'}>
-    <header><span><Icon />{surface.tool}{surface.action ? ` · ${surface.action}` : ''}</span><small>{surface.state === 'succeeded' ? <CheckCircle2 /> : surface.state === 'failed' ? <TriangleAlert /> : <CircleEllipsis />}{stateLabel(surface.state)}</small></header>
-    <p>{summary}</p>
-    {facts(surface).length > 0 && <div className="pigent-surface-facts">{facts(surface).map((fact) => <span key={String(fact)}>{fact}</span>)}</div>}
-    {Object.keys(progress).length > 0 && <div className="pigent-operation-progress" role="status"><strong>{safeText(progress.phase)}</strong><span>{safeText(progress.message)}</span>{typeof progress.total === 'number' && <progress value={Number(progress.completed ?? 0)} max={progress.total} />}</div>}
-    {diff && <pre className="pigent-diff">{diff}</pre>}
-    {stdout && <pre className="pigent-output"><span>stdout</span>{stdout}</pre>}
-    {stderr && <pre className="pigent-output is-stderr"><span>stderr</span>{stderr}</pre>}
-    {Object.keys(receipt).length > 0 && <div className="pigent-receipt" role="status"><CheckCircle2 />{safeText(receipt.summary, safeText(receipt.outcome))}</div>}
-    {expanded && <pre className="pigent-fallback-json">{json(surface.raw)}</pre>}
-    <SurfaceActions actions={surface.actions.map((action) => action.id === 'expand' ? { ...action, label: expanded ? 'Collapse' : 'Expand' } : action)} onExpand={() => setExpanded((value) => !value)} onOpen={(path, reveal) => window.dispatchEvent(new CustomEvent('pipyter:open-path', { detail: { path, reveal } }))} />
+  const error = safeRecord(surface.error)
+  const active = surface.state === 'running' || surface.state === 'queued'
+  const detailActions = surface.actions
+  const factList = facts(surface)
+  const hasDetails = Object.keys(progress).length > 0 || diff || stdout || stderr || Object.keys(error).length > 0 || Object.keys(receipt).length > 0 || detailActions.length > 0
+  return <article className={`pigent-tool-surface is-${density} state-${surface.state}`} aria-busy={active}>
+    <header className="pigent-tool-header">
+      <span className="pigent-tool-state" aria-hidden="true">{surface.state === 'succeeded' ? <CheckCircle2 /> : surface.state === 'failed' ? <TriangleAlert /> : <CircleEllipsis className={active ? 'spin-soft' : ''} />}</span>
+      <span className="pigent-tool-name"><Icon />{surface.tool}{surface.action && <em>{surface.action}</em>}</span>
+      <span className="pigent-tool-summary">{summary}</span>
+      {factList.length > 0 && <span className="pigent-tool-facts">{factList.join(' · ')}</span>}
+      <small>{stateLabel(surface.state)}</small>
+    </header>
+    {hasDetails && <div className="pigent-tool-details">
+      {Object.keys(progress).length > 0 && <div className="pigent-operation-progress" role="status"><strong>{safeText(progress.phase)}</strong><span>{safeText(progress.message)}</span>{typeof progress.total === 'number' && <progress value={Number(progress.completed ?? 0)} max={progress.total} />}</div>}
+      {diff && <pre className="pigent-diff">{diff}</pre>}
+      {stdout && <pre className="pigent-output"><span>stdout</span>{stdout}</pre>}
+      {stderr && <pre className="pigent-output is-stderr"><span>stderr</span>{stderr}</pre>}
+      {Object.keys(error).length > 0 && <pre className="pigent-output is-stderr"><span>error</span>{json(error)}</pre>}
+      {Object.keys(receipt).length > 0 && <div className="pigent-receipt" role="status"><CheckCircle2 />{safeText(receipt.summary, safeText(receipt.outcome))}</div>}
+      {detailActions.length > 0 && <SurfaceActions actions={detailActions} onOpen={(path, reveal) => window.dispatchEvent(new CustomEvent('pipyter:open-path', { detail: { path, reveal } }))} />}
+    </div>}
   </article>
 }
 
@@ -58,5 +68,5 @@ export function ArtifactSurface({ event, density = 'comfortable', artifactUrl }:
 
 export function FallbackSurface({ event }: { event: PigentEvent }) {
   const value = useMemo(() => json(event.payload).slice(0, 16000), [event.payload])
-  return <article className="pigent-card pigent-fallback-surface"><header><span><TriangleAlert />{event.type}</span><small>fallback</small></header><details><summary>Show bounded payload</summary><pre>{value}</pre></details></article>
+  return <article className="pigent-card pigent-fallback-surface"><header><span><TriangleAlert />{event.type}</span><small>fallback</small></header><pre>{value}</pre></article>
 }

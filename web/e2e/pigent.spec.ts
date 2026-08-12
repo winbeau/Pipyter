@@ -22,7 +22,11 @@ const capabilities = {
     auto: ['read', 'view', 'write', 'update', 'bash', 'notebook', 'kernel', 'inspect', 'tasks', 'delegate'],
   },
   capabilities: [], event_types: [], model: { provider: 'faux', model: 'deterministic' },
-  models: [{ provider: 'faux', model: 'deterministic', label: 'Deterministic', configured: true }], settings_revision: 'sha256:test',
+  models: [
+    { id: 'deepseek:deepseek-v4-flash', provider: 'deepseek', model: 'deepseek-v4-flash', label: 'deepseek-v4-flash', configured: true },
+    { id: 'deepseek:deepseek-v4-pro', provider: 'deepseek', model: 'deepseek-v4-pro', label: 'deepseek-v4-pro', configured: true },
+    { id: 'faux:deterministic', provider: 'faux', model: 'deterministic', label: 'Deterministic', configured: true },
+  ], settings_revision: 'sha256:test',
 }
 
 async function json(route: Route, body: unknown, status = 200) {
@@ -34,6 +38,7 @@ async function installMockRuntime(page: Page) {
     sessions: [session('session-1', 'Existing session'), session('session-older', 'Archived analysis', 'completed')],
     created: 1,
     run: 0,
+    projectBodies: [] as Record<string, unknown>[],
     decisionBodies: [] as Record<string, unknown>[],
     aborts: 0,
   }
@@ -68,6 +73,15 @@ async function installMockRuntime(page: Page) {
     Object.defineProperty(window, 'WebSocket', { value: MockWebSocket, configurable: true })
   })
   await page.route('**/api/v1/terminals**', async (route) => json(route, []))
+  await page.route('**/api/v1/workspace', async (route) => json(route, {
+    root: '/home/winbeau/Projects/Pipyter',
+    workspace_id: 'workspace',
+    project_id: 'project',
+  }))
+  await page.route('**/api/v1/kernels/specs', async (route) => json(route, [
+    { name: 'python3', display_name: 'Python 3', language: 'python' },
+    { name: 'julia-1.11', display_name: 'Julia 1.11', language: 'julia' },
+  ]))
   await page.route('**/api/v1/pigent/**', async (route) => {
     const request = route.request()
     const url = new URL(request.url())
@@ -80,6 +94,12 @@ async function installMockRuntime(page: Page) {
     }
     if (path === '/api/v1/pigent/sessions' && method === 'POST') {
       const created = session(`session-new-${state.created++}`, 'New session')
+      state.sessions.unshift(created)
+      return json(route, created, 201)
+    }
+    if (path === '/api/v1/pigent/projects/sessions' && method === 'POST') {
+      state.projectBodies.push(request.postDataJSON() as Record<string, unknown>)
+      const created = session(`session-project-${state.created++}`, 'New session')
       state.sessions.unshift(created)
       return json(route, created, 201)
     }
@@ -121,12 +141,9 @@ for (const viewport of viewports) {
     await page.goto('/#/pigent')
     await expect(page.getByText('Pigent', { exact: true }).first()).toBeVisible()
     await expect(page.getByLabel('Message Pigent')).toBeVisible()
-    await expect(page.getByRole('radiogroup', { name: 'Pigent mode' })).toBeVisible()
-    if (viewport.width <= 1024) {
-      await page.getByRole('button', { name: '打开 Pigent 会话列表' }).click()
-      await expect(page.getByText('当前 Workspace').first()).toBeVisible()
-      await page.getByRole('button', { name: '关闭 Pigent 会话列表' }).click()
-    }
+    await expect(page.getByRole('combobox', { name: 'Pigent mode', exact: true })).toContainText('Ask')
+    await expect(page.getByRole('button', { name: '新建对话' })).toBeVisible()
+    await expect(page.getByRole('button', { name: '新建项目' })).toBeVisible()
     const body = await page.locator('body').evaluate((node) => ({ scrollWidth: node.scrollWidth, clientWidth: node.clientWidth }))
     expect(body.scrollWidth).toBeLessThanOrEqual(body.clientWidth + 2)
   })
@@ -146,8 +163,9 @@ test('send, stop, interaction, artifact, session CRUD, search, and reconnect are
 
   await page.getByLabel('Message Pigent').fill('Run the acceptance flow')
   await page.getByRole('button', { name: '发送消息' }).click()
-  await expect(page.getByText('Run the acceptance flow', { exact: true })).toBeVisible()
-  await expect(page.getByText('accepted', { exact: true })).toBeVisible()
+  await expect(page.locator('.design-live-user').getByText('Run the acceptance flow', { exact: true })).toBeVisible()
+  await expect.poll(() => mock.run).toBe(1)
+  await expect(page.getByRole('button', { name: '停止运行' })).toBeVisible()
   await page.getByRole('button', { name: '停止运行' }).click()
   await expect.poll(() => mock.aborts).toBe(1)
 
@@ -174,30 +192,102 @@ test('send, stop, interaction, artifact, session CRUD, search, and reconnect are
     expect.stringMatching(/artifact-1\?download=true$/),
   ])
 
-  await page.getByRole('button', { name: 'New session' }).click()
-  await expect(page.getByText('New session', { exact: true }).first()).toBeVisible()
+  await page.getByRole('button', { name: '新建对话' }).click()
+  await expect(page.locator('.design-session-select').first()).toBeVisible()
   page.once('dialog', (dialog) => dialog.accept('Renamed session'))
-  await page.getByRole('button', { name: 'Manage New session' }).click()
-  await page.getByRole('menuitem', { name: 'Rename' }).click()
+  await page.locator('.design-session-select').first().click({ button: 'right' })
+  await page.getByRole('menuitem', { name: '重命名' }).click()
   await expect(page.getByText('Renamed session', { exact: true }).first()).toBeVisible()
-  await page.getByPlaceholder('Search').fill('Archived')
   await expect(page.getByText('Archived analysis', { exact: true })).toBeVisible()
-  await expect(page.getByText('Renamed session', { exact: true })).toHaveCount(0)
+  await expect(page.getByText('Renamed session', { exact: true }).first()).toBeVisible()
   await page.getByLabel('Message Pigent').fill('Keep using the active session')
   await page.getByRole('button', { name: '发送消息' }).click()
   await expect(page.getByRole('paragraph').filter({ hasText: 'Keep using the active session' })).toBeVisible()
   expect(mock.created).toBe(2)
-  await page.getByPlaceholder('Search').fill('')
   page.once('dialog', (dialog) => dialog.accept())
-  await page.getByRole('button', { name: 'Manage Renamed session' }).click()
-  await page.getByRole('menuitem', { name: 'Delete' }).click()
+  await page.getByRole('button', { name: 'Renamed session', exact: true }).click({ button: 'right' })
+  await page.getByRole('menuitem', { name: '删除' }).click()
   await expect(page.getByText('Renamed session', { exact: true })).toHaveCount(0)
   const socketsBefore = await page.evaluate(() => (window as unknown as { __mockPigentSockets?: unknown[] }).__mockPigentSockets?.length ?? 0)
   await page.evaluate(() => {
     const sockets = (window as unknown as { __mockPigentSockets?: Array<{ testDisconnect(): void }> }).__mockPigentSockets ?? []
     sockets.at(-1)?.testDisconnect()
   })
-  await expect(page.getByText('disconnected', { exact: true })).toBeVisible()
   await expect.poll(() => page.evaluate(() => (window as unknown as { __mockPigentSockets?: unknown[] }).__mockPigentSockets?.length ?? 0), { timeout: 3000 }).toBeGreaterThan(socketsBefore)
-  await expect(page.getByText('connected', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: '发送消息' })).toBeVisible()
+})
+
+test('Design route uses real sessions and projects live semantic tool aliases', async ({ page }) => {
+  await installMockRuntime(page)
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await page.goto('/#/pigent')
+  await expect(page.getByRole('heading', { name: 'Existing session' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '新建对话' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '新建项目' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Existing session', exact: true })).toHaveAttribute('aria-current', 'page')
+  await page.getByRole('button', { name: 'Existing session', exact: true }).click({ button: 'right' })
+  await expect(page.getByRole('menu', { name: '管理 Existing session' })).toBeVisible()
+  await expect(page.getByRole('menuitem', { name: '打开方式' })).toBeVisible()
+  await expect(page.getByRole('menuitem', { name: '删除' })).toHaveCSS('color', 'rgb(176, 68, 62)')
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('button', { name: 'Pigent model' })).toContainText('Deterministic')
+
+  const events = [
+    { version: 1, event_id: 11, session_id: 'session-1', type: 'tool.start', timestamp: now, payload: { tool_call_id: 'notebook-1', tool: 'notebook', arguments: { action: 'update_cell', path: 'analysis.ipynb', cell_id: 'cell-4' } } },
+    { version: 1, event_id: 12, session_id: 'session-1', type: 'tool.end', timestamp: now, payload: { tool_call_id: 'notebook-1', tool: 'notebook', status: 'completed', result: { details: { ok: true, summary: 'Notebook update_cell completed', data: { path: 'analysis.ipynb', diff: '@@ -1 +1 @@\n-score = 0.7\n+score = 0.9\n', cell: { index: 3, cell_id: 'cell-4', source: 'score = 0.9' } } } } } },
+    { version: 1, event_id: 13, session_id: 'session-1', type: 'tool.start', timestamp: now, payload: { tool_call_id: 'bash-1', tool: 'bash', arguments: { command: 'pnpm test' } } },
+    { version: 1, event_id: 14, session_id: 'session-1', type: 'tool.end', timestamp: now, payload: { tool_call_id: 'bash-1', tool: 'bash', status: 'completed', result: { details: { ok: true, summary: 'Command exited with code 0', data: { command: 'pnpm test', stdout: '43 passed', stderr: '', exit_code: 0 } } } } },
+    { version: 1, event_id: 15, session_id: 'session-1', type: 'tool.start', timestamp: now, payload: { tool_call_id: 'agent-1', tool: 'delegate', arguments: { profile: 'analysis', task: '检查性能异常' } } },
+    { version: 1, event_id: 16, session_id: 'session-1', type: 'tool.end', timestamp: now, payload: { tool_call_id: 'agent-1', tool: 'delegate', status: 'completed', result: { details: { ok: true, summary: 'Analysis complete', data: { result: { status: 'completed', summary: '定位到缓存失效' } } } } } },
+    { version: 1, event_id: 17, session_id: 'session-1', type: 'tool.start', timestamp: now, payload: { tool_call_id: 'tasks-1', tool: 'tasks', arguments: { action: 'patch' } } },
+    { version: 1, event_id: 18, session_id: 'session-1', type: 'tasks.snapshot', timestamp: now, payload: { snapshot: { revision: '2', root: { id: 'root', title: '实现真实 Agent', status: 'running', children: [{ id: 't1', title: '接入工具流', status: 'running' }] } } } },
+    { version: 1, event_id: 19, session_id: 'session-1', type: 'tool.end', timestamp: now, payload: { tool_call_id: 'tasks-1', tool: 'tasks', status: 'completed', result: { details: { ok: true, summary: 'Tasks accepted' } } } },
+    { version: 1, event_id: 20, session_id: 'session-1', type: 'settled', timestamp: now, payload: { status: 'completed' } },
+  ]
+  await page.evaluate((incoming) => {
+    const sockets = (window as unknown as { __mockPigentSockets?: Array<{ onmessage: ((event: MessageEvent) => void) | null }> }).__mockPigentSockets ?? []
+    for (const event of incoming) sockets.at(-1)?.onmessage?.(new MessageEvent('message', { data: JSON.stringify(event) }))
+  }, events)
+  const notebook = page.locator('.design-live-tool.is-notebook')
+  await expect(notebook.getByRole('button')).toContainText('NotebookUpdateanalysis.ipynb · Cell 4')
+  await notebook.getByRole('button').click()
+  await expect(notebook.getByText('score = 0.9')).toBeVisible()
+  const passive = page.locator('.design-read-group')
+  await expect(passive).toContainText('Bash×1')
+  await expect(passive).toContainText('43 passed')
+  await expect(passive).not.toContainText('pnpm test')
+  await expect(passive.getByRole('button')).toHaveCount(0)
+  await expect(passive.locator('.design-tool-call-chevron')).toHaveCount(0)
+  const agent = page.locator('.design-live-tool.is-agent')
+  await expect(agent.getByRole('button')).toContainText('AgentAnalyzer检查性能异常')
+  await expect(page.locator('[data-tool="tasks"]')).toHaveCount(0)
+  await expect(page.locator('.design-persistent-tasks')).toContainText('接入工具流')
+
+  await page.getByRole('button', { name: 'Pigent model' }).click()
+  await expect(page.getByText('deepseek-v4-pro', { exact: true })).toBeVisible()
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true)
+})
+
+test('Design new project loads workspace and kernels and creates a project session', async ({ page }) => {
+  const mock = await installMockRuntime(page)
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await page.goto('/#/pigent')
+
+  await page.getByRole('button', { name: '新建项目' }).click()
+  const dialog = page.getByRole('dialog', { name: '新建项目' })
+  await expect(dialog).toBeVisible()
+  const workspace = dialog.getByLabel('Workspace directory')
+  await expect(workspace).toHaveValue('/home/winbeau/Projects/Pipyter')
+  await workspace.fill('/home/winbeau/Projects/Pipyter/web')
+  await dialog.getByLabel('Kernel').selectOption('python3')
+  await dialog.getByRole('button', { name: '创建项目' }).click()
+
+  await expect.poll(() => mock.projectBodies).toEqual([{
+    mode: 'ask',
+    workspace: '/home/winbeau/Projects/Pipyter/web',
+    kernel_name: 'python3',
+    approval_preference: 'automatic',
+  }])
+  await expect(dialog).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: 'New session' })).toBeVisible()
 })

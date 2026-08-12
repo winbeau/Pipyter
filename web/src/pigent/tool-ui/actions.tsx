@@ -1,8 +1,8 @@
-import { Check, Copy, Download, ExternalLink, FolderOpen, Maximize2 } from 'lucide-react'
+import { Check, Copy, Download, ExternalLink, FolderOpen } from 'lucide-react'
 import { useState } from 'react'
 import type { ToolSurfaceAction } from '../types'
 
-export function SurfaceActions({ actions, onOpen, onExpand }: { actions: ToolSurfaceAction[]; onOpen?(path: string, reveal: boolean): void; onExpand?(): void }) {
+export function SurfaceActions({ actions, onOpen }: { actions: ToolSurfaceAction[]; onOpen?(path: string, reveal: boolean): void }) {
   const [pending, setPending] = useState<string | null>(null)
   const [done, setDone] = useState<string | null>(null)
   const invoke = async (action: ToolSurfaceAction) => {
@@ -13,11 +13,10 @@ export function SurfaceActions({ actions, onOpen, onExpand }: { actions: ToolSur
       else if ((action.id === 'open' || action.id === 'reveal') && action.value) onOpen?.(action.value, action.id === 'reveal')
       else if (action.id === 'open' && action.href) window.open(action.href, '_blank', 'noopener,noreferrer')
       else if (action.id === 'download' && action.href) window.open(action.href, '_blank', 'noopener,noreferrer')
-      else if (action.id === 'expand' && onExpand) onExpand()
       else return
       setDone(action.id)
     } finally { setPending(null) }
   }
-  const icon = (id: ToolSurfaceAction['id']) => id === 'copy' ? <Copy /> : id === 'download' ? <Download /> : id === 'open' ? <ExternalLink /> : id === 'reveal' ? <FolderOpen /> : <Maximize2 />
+  const icon = (id: ToolSurfaceAction['id']) => id === 'copy' ? <Copy /> : id === 'download' ? <Download /> : id === 'open' ? <ExternalLink /> : <FolderOpen />
   return <div className="pigent-surface-actions" aria-busy={Boolean(pending)}>{actions.map((action) => <button key={action.id} type="button" disabled={Boolean(pending)} onClick={() => void invoke(action)}>{done === action.id ? <Check /> : icon(action.id)}{action.label}</button>)}</div>
 }

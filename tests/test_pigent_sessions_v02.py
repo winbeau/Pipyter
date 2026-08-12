@@ -8,7 +8,14 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from pipyter.pigent.config import PigentConfigStore
-from pipyter.pigent.sessions import InteractionDecision, MessageCreate, PigentSessionService, SessionState, create_public_router
+from pipyter.pigent.sessions import (
+    InteractionDecision,
+    MessageCreate,
+    PigentSessionService,
+    SessionState,
+    _automatic_session_title,
+    create_public_router,
+)
 
 
 class Manager:
@@ -30,6 +37,10 @@ class Manager:
 class Bridge:
     def __init__(self):
         self.sessions = {"pigent_v02": SimpleNamespace()}
+        self.cancelled_sessions = []
+
+    async def cancel_session(self, session_id):
+        self.cancelled_sessions.append(session_id)
 
 
 def service(tmp_path):
@@ -57,6 +68,29 @@ def test_client_message_id_is_idempotent_and_correlated(tmp_path):
         assert getattr(error, "status_code", None) == 409
     else:
         raise AssertionError("message ID conflict was accepted")
+
+
+def test_first_message_auto_titles_an_untitled_session_without_overwriting_manual_title(tmp_path):
+    value, session, manager = service(tmp_path)
+    assert session.title is None
+    asyncio.run(value.message(session, MessageCreate(
+        client_message_id="msg_title",
+        content="# 修复 Notebook 输出\n\n请检查 `analysis.ipynb` 的第 4 个单元格。",
+    )))
+    assert session.title == "修复 Notebook 输出 请检查 analysis.ipynb 的第 4 个单元格"
+    assert session.events[-1]["payload"]["session"]["title"] == session.title
+
+    session.run_active = False
+    session.title = "用户手动标题"
+    asyncio.run(value.message(session, MessageCreate(client_message_id="msg_keep_title", content="完全不同的新问题")))
+    assert session.title == "用户手动标题"
+    assert [name for name, _ in manager.commands].count("prompt") == 2
+
+
+def test_automatic_session_title_is_clean_and_bounded():
+    assert _automatic_session_title("```bash\nrm -rf /tmp/demo\n```") is None
+    title = _automatic_session_title("Please investigate why the notebook kernel repeatedly disconnects while running the long analysis pipeline")
+    assert title is not None and len(title) <= 49 and title.endswith("…")
 
 
 def test_concurrent_client_message_id_is_reserved_once(tmp_path):
@@ -166,3 +200,23 @@ def test_session_patch_search_filter_delete_conflict_and_history_api(tmp_path):
         session.run_active = True
         deleted = client.delete(f"/api/v1/pigent/sessions/{session.id}")
         assert deleted.status_code == 409
+
+
+def test_abort_cancels_host_and_bridge_owned_operations(tmp_path):
+    value, session, manager = service(tmp_path)
+    session.run_active = True
+    session.run_id = "run_active"
+    app = FastAPI()
+    app.include_router(create_public_router(value))
+    with TestClient(app) as client:
+        response = client.post(
+            f"/api/v1/pigent/sessions/{session.id}/abort",
+            json={"run_id": session.run_id, "reason": "user_stop"},
+        )
+    assert response.status_code == 202
+    assert manager.commands[-1] == ("abort", {
+        "session_id": session.id,
+        "run_id": session.run_id,
+        "reason": "user_stop",
+    })
+    assert value.bridge.cancelled_sessions == [session.id]

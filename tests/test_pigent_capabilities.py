@@ -16,7 +16,7 @@ def _handshake() -> dict:
     return {
         "protocol_version": "0.2",
         "tool_protocol_version": "0.2",
-        "runtime_version": "0.2.0",
+        "runtime_version": "0.3.0",
         "tools": list(PIGENT_TOOL_NAMES),
         "modes": {key: list(value) for key, value in PIGENT_CATALOGS.items()},
         "action_filters": {

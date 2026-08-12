@@ -38,6 +38,15 @@ class BridgeSession:
 
 
 @dataclass(slots=True)
+class _WorkspaceServices:
+    artifacts: ArtifactRegistry
+    files: FileToolService
+    bash: BashToolService
+    notebooks: NotebookService
+    inspection: InspectionService
+
+
+@dataclass(slots=True)
 class _Cached:
     fingerprint: str
     result: PigentToolResult
@@ -63,12 +72,18 @@ class PigentBridge:
         self.kernels = kernels
         self.environments = environments
         self.operations = operations
+        self.terminal_sessions = terminal_sessions
         self.idempotency_ttl = idempotency_ttl
         self.artifacts = ArtifactRegistry(self.workspace)
         self.files = FileToolService(self.workspace, self.artifacts)
         self.bash_service = BashToolService(self.workspace, terminal_sessions=terminal_sessions)
         self.notebooks = NotebookService(self.workspace, kernels)
         self.inspection = InspectionService(kernels, self.artifacts)
+        self._workspace_services: dict[Path, _WorkspaceServices] = {
+            self.workspace: _WorkspaceServices(
+                self.artifacts, self.files, self.bash_service, self.notebooks, self.inspection,
+            ),
+        }
         self.sessions: dict[str, BridgeSession] = {}
         self.handlers: dict[str, ToolHandler] = {}
         self._cache: dict[tuple[str, str], _Cached] = {}
@@ -79,11 +94,19 @@ class PigentBridge:
         session_id: str,
         *,
         mode: Any,
+        workspace: Path | None = None,
         active_document: str | None = None,
         active_kernel_id: str | None = None,
     ) -> BridgeSession:
+        session_workspace = (workspace or self.workspace).expanduser().resolve()
+        try:
+            session_workspace.relative_to(self.workspace)
+        except ValueError as error:
+            raise ValueError("Session workspace must stay inside the Runtime Workspace") from error
+        if not session_workspace.is_dir():
+            raise NotADirectoryError(session_workspace)
         session = BridgeSession(
-            session_id, self.workspace_id, self.workspace, normalize_mode(mode), active_document, active_kernel_id,
+            session_id, self.workspace_id, session_workspace, normalize_mode(mode), active_document, active_kernel_id,
         )
         self.sessions[session_id] = session
         return session
@@ -106,6 +129,11 @@ class PigentBridge:
         if clear_active_kernel or active_kernel_id is not None:
             session.active_kernel_id = active_kernel_id
 
+    async def cancel_session(self, session_id: str) -> None:
+        """Cancel long-running bridge-owned work that outlives the host tool call."""
+        if self.operations is not None:
+            await self.operations.cancel_for_session(session_id)
+
     def register_handler(self, tool: str, handler: ToolHandler) -> None:
         if tool not in PIGENT_TOOL_NAMES:
             raise ValueError(f"Unknown Pigent tool: {tool}")
@@ -118,6 +146,10 @@ class PigentBridge:
             session = self._session(context.session_id)
             if context.workspace_id != session.workspace_id:
                 raise ToolFailure("permission_denied", "Session does not own the requested workspace")
+            if session.active_kernel_id:
+                owns_workspace = getattr(self.kernels, "owns_workspace", None)
+                if callable(owns_workspace) and not owns_workspace(session.active_kernel_id, session.workspace):
+                    raise ToolFailure("permission_denied", "Active Kernel belongs to a different project Workspace")
             trusted = context.model_copy(update={
                 "mode": session.mode,
                 "workspace_id": session.workspace_id,
@@ -147,26 +179,28 @@ class PigentBridge:
             return ToolFailure("internal_error", str(error)).result()
 
     async def _invoke(self, tool: str, arguments: dict[str, Any], context: PigentToolContext) -> PigentToolResult:
+        session = self._session(context.session_id)
+        services = self._services(session.workspace)
         if tool == "read":
-            return await self.files.read(arguments)
+            return await services.files.read(arguments)
         if tool == "view":
-            return await self.files.view(arguments)
+            return await services.files.view(arguments)
         if tool == "write":
-            return await self.files.write(arguments)
+            return await services.files.write(arguments)
         if tool == "update":
-            return await self.files.update(arguments)
+            return await services.files.update(arguments)
         if tool == "bash":
-            return await self.bash_service.bash(arguments)
+            return await services.bash.bash(arguments)
         if tool == "notebook":
             notebook_arguments = dict(arguments)
             active_document = context.active_document or {}
             if not notebook_arguments.get("path") and active_document.get("path"):
                 notebook_arguments["path"] = active_document["path"]
-            return await self.notebooks.dispatch(notebook_arguments, kernel_id=context.active_kernel_id)
+            return await services.notebooks.dispatch(notebook_arguments, kernel_id=context.active_kernel_id)
         if tool == "kernel":
             return await self._kernel(arguments, context.active_kernel_id, context)
         if tool == "inspect":
-            return await self.inspection.inspect(arguments, kernel_id=context.active_kernel_id)
+            return await services.inspection.inspect(arguments, kernel_id=context.active_kernel_id)
         handler = self.handlers.get(tool)
         if handler is None:
             raise ToolFailure("service_unavailable", f"{tool} is not connected in the Phase 2 bridge")
@@ -196,6 +230,8 @@ class PigentBridge:
         if action in {"create_temporary", "create_maintained", "sync_environment", "promote_environment", "delete_environment"}:
             if self.operations is None:
                 raise ToolFailure("service_unavailable", "Kernel operation service is unavailable")
+            if self._session(context.session_id).workspace != self.workspace:
+                raise ToolFailure("permission_denied", "Kernel environment management is only available from the Runtime Workspace")
             if action == "create_temporary":
                 accepted = self.operations.create_temporary(arguments, session_id=context.session_id, tool_call_id=context.tool_call_id)
             elif action == "create_maintained":
@@ -220,7 +256,12 @@ class PigentBridge:
         if action == "start_environment":
             environment_id = str(arguments.get("environment_id", ""))
             try:
-                summary = await self.kernels.start_async(None, environment_id=environment_id, notebook_path=arguments.get("notebook_path"))
+                summary = await self.kernels.start_async(
+                    None,
+                    environment_id=environment_id,
+                    notebook_path=arguments.get("notebook_path"),
+                    cwd=self._session(context.session_id).workspace,
+                )
             except Exception as error:
                 raise ToolFailure("kernel_environment_conflict", str(error)) from error
             self.update_session(context.session_id, active_kernel_id=summary.id)
@@ -231,6 +272,9 @@ class PigentBridge:
             result = await self.kernels.execute_async(kernel_id, str(arguments.get("code", "")), arguments.get("timeout", 30),
                                                       store_history=bool(arguments.get("store_history", False)))
             data = result.model_dump() if hasattr(result, "model_dump") else dict(result)
+            active = next((item for item in self.kernels.list() if item.id == kernel_id), None)
+            if active is not None:
+                data["name"] = active.name
             return PigentToolResult(ok=True, summary="Kernel execution completed", data=data)
         if kernel_id is None:
             raise ToolFailure("kernel_unavailable", "No active kernel")
@@ -252,6 +296,29 @@ class PigentBridge:
             return self.sessions[session_id]
         except KeyError as error:
             raise ToolFailure("permission_denied", "Unknown or expired Pigent session") from error
+
+    def artifact(self, artifact_id: str) -> Any | None:
+        for services in self._workspace_services.values():
+            item = services.artifacts._items.get(artifact_id)
+            if item is not None:
+                return item
+        return None
+
+    def _services(self, workspace: Path) -> _WorkspaceServices:
+        workspace = workspace.resolve()
+        existing = self._workspace_services.get(workspace)
+        if existing is not None:
+            return existing
+        artifacts = ArtifactRegistry(workspace)
+        services = _WorkspaceServices(
+            artifacts=artifacts,
+            files=FileToolService(workspace, artifacts),
+            bash=BashToolService(workspace, terminal_sessions=self.terminal_sessions),
+            notebooks=NotebookService(workspace, self.kernels),
+            inspection=InspectionService(self.kernels, artifacts),
+        )
+        self._workspace_services[workspace] = services
+        return services
 
     def _prune(self, now: float) -> None:
         expired = [key for key, item in self._cache.items() if item.expires_at <= now]

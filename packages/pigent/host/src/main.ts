@@ -9,7 +9,10 @@ import { attachJsonlLineReader, serializeJsonLine } from "@pipyter/pigent-runtim
 import { EVENT_TYPES, EventEmitter } from "./events.js";
 import { ACTION_FILTERS, CAPABILITIES, CATALOGS, createToolDefinitions, type Mode, PROTOCOL_VERSION, type ToolSessionContext, TOOL_NAMES } from "./tools.js";
 
-const VERSION = "0.2.0";
+const VERSION = "0.3.0";
+
+export const EMOJI_STYLE_GUIDANCE = "Do not use emoji by default. Do not decorate headings or list items with emoji. " +
+  "Only when one emoji materially improves clarity may you use it, and never use more than one emoji in the entire response.";
 
 interface StartupConfig {
   version: 1; protocolVersion: "0.2"; workspaceId: string; workspaceRoot: string;
@@ -92,8 +95,12 @@ export function dynamicTasksInput(args: Record<string, any>, snapshot: any): Rec
       activity: item.activity, blockedBy: item.blocked_by ?? item.blockedBy ?? [] })) };
 }
 
+export function mainAgentSystemPrompt(identityPrompt: string): string {
+  return `You are Pigent. ${identityPrompt} ${EMOJI_STYLE_GUIDANCE}`;
+}
+
 export function agentProfile(id: string, write: boolean) {
-  return { id, systemPrompt: `Pigent ${id} sub-agent. Do not delegate.`,
+  return { id, systemPrompt: `Pigent ${id} sub-agent. Do not delegate. ${EMOJI_STYLE_GUIDANCE}`,
     toolAllowlist: [...(write ? TOOL_NAMES : CATALOGS.ask)].filter((name) => name !== "delegate"),
     allowFileModifications: write, timeoutMs: 600_000 };
 }
@@ -136,8 +143,9 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
     const identity = record.execution_identity && typeof record.execution_identity === "object" ? record.execution_identity : {};
     const identityPrompt = `Execution identity (authoritative): username=${String(identity.username ?? "unknown")}, ` +
       `uid=${String(identity.uid ?? "unknown")}, home=${String(identity.home ?? "unknown")}, workspace=${String(identity.workspace ?? config.workspaceRoot)}.`;
-    const services = await createAgentSessionServices({ cwd: config.workspaceRoot, agentDir: config.userConfigDir,
-      settingsManager, modelRuntime, resourceLoaderOptions: { skills: false, systemPrompt: `You are Pigent. ${identityPrompt}` } as any });
+    const sessionWorkspace = typeof identity.workspace === "string" && identity.workspace ? identity.workspace : config.workspaceRoot;
+    const services = await createAgentSessionServices({ cwd: sessionWorkspace, agentDir: config.userConfigDir,
+      settingsManager, modelRuntime, resourceLoaderOptions: { skills: false, systemPrompt: mainAgentSystemPrompt(identityPrompt) } as any });
     let runtime!: AgentSession;
     const eventEmitter = new EventEmitter(record.id, (event) => send({ version: 1, kind: "event", event }));
     const context: ToolSessionContext = { sessionId: record.id, workspaceId: config.workspaceId, mode: record.mode as Mode,
@@ -174,7 +182,7 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
         return { ok: result.status === "completed", summary: result.summary, data: { result } };
       } };
     const customTools = createToolDefinitions(context);
-    const created = await createAgentSessionFromServices({ services, sessionManager: SessionManager.create(config.workspaceRoot, config.sessionDir),
+    const created = await createAgentSessionFromServices({ services, sessionManager: SessionManager.create(sessionWorkspace, config.sessionDir),
       model, thinkingLevel: chosen.settings.defaultThinkingLevel ?? "medium", customTools, tools: [...CATALOGS[record.mode as Mode]],
       agentPool: { maxConcurrency: 4, defaultProfile: "analysis", profiles: [agentProfile("analysis", false), agentProfile("research", false),
         agentProfile("review", false), agentProfile("implementation", true)] } });

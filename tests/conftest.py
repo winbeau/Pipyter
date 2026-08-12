@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import os
-
 import pytest
 
 from pipyter.config import config_dir
@@ -12,7 +10,9 @@ from pipyter.workspace.project import link_project
 @pytest.fixture()
 def isolated_config(tmp_path, monkeypatch):
     """Point Pipyter config/credentials at a scratch directory."""
-    monkeypatch.setenv("PIPYTER_CONFIG_DIR", str(tmp_path / "config"))
+    root = tmp_path / "config"
+    monkeypatch.setenv("PIPYTER_CONFIG_HOME", str(root))
+    monkeypatch.setenv("PIPYTER_CONFIG_DIR", str(root))
     return config_dir()
 
 
@@ -37,6 +37,10 @@ def client(project):
 
 
 @pytest.fixture(autouse=True)
-def _isolate_config_env(monkeypatch):
-    # Keep the runner's own credentials untouched by default.
-    monkeypatch.setenv("PIPYTER_CONFIG_DIR", str(os.environ.get("PIPYTER_CONFIG_DIR", "")) or "/tmp/pipyter-test-config")
+def _isolate_config_env(tmp_path, monkeypatch):
+    """Keep every control-plane and Pigent config write inside this test's temp tree."""
+    root = tmp_path / "config"
+    # PIPYTER_CONFIG_HOME is the shared authority. Retain CONFIG_DIR because
+    # older control-plane call sites and tests still support that alias.
+    monkeypatch.setenv("PIPYTER_CONFIG_HOME", str(root))
+    monkeypatch.setenv("PIPYTER_CONFIG_DIR", str(root))

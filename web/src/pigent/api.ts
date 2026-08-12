@@ -1,9 +1,23 @@
 import { apiUrl, jsonRequest, websocketUrl } from '../api/client'
+import type { KernelSpecSummary, WorkspaceSummary } from '../../../packages/protocol/src/index'
 import type { PigentModelSelection } from './models'
 import type { PigentCapabilities, PigentContext, PigentEvent, PigentMode, PigentSession, TasksSnapshot } from './types'
 
 export type MessageAccepted = { accepted: true; client_message_id: string; run_id: string; turn_id: string }
 export type HistoryPage = { events: PigentEvent[]; has_more: boolean; before_event_id: number | null }
+export type PigentProjectKernelOption = Pick<KernelSpecSummary, 'name' | 'display_name' | 'language'>
+export type PigentProjectCreationOptions = { defaultWorkspace: string; kernels: PigentProjectKernelOption[] }
+export type PigentProjectCreate = { workspace: string; kernelName: string | null }
+
+function projectWorkspace(value: unknown): string {
+  if (!value || typeof value !== 'object') return '.'
+  const record = value as Record<string, unknown>
+  for (const key of ['root', 'path', 'workspace_root']) {
+    const candidate = record[key]
+    if (typeof candidate === 'string' && candidate.trim()) return candidate.trim()
+  }
+  return '.'
+}
 
 export function createPigentApi(apiBase: string) {
   return {
@@ -18,6 +32,23 @@ export function createPigentApi(apiBase: string) {
     createSession: (mode: PigentMode, title?: string) =>
       jsonRequest<PigentSession>(apiBase, '/api/v1/pigent/sessions', {
         method: 'POST', body: JSON.stringify({ mode, approval_preference: 'automatic', title }),
+      }),
+    projectCreationOptions: async (): Promise<PigentProjectCreationOptions> => {
+      const [workspace, kernels] = await Promise.all([
+        jsonRequest<WorkspaceSummary>(apiBase, '/api/v1/workspace'),
+        jsonRequest<PigentProjectKernelOption[]>(apiBase, '/api/v1/kernels/specs'),
+      ])
+      return { defaultWorkspace: projectWorkspace(workspace), kernels }
+    },
+    createProjectSession: (mode: PigentMode, options: PigentProjectCreate) =>
+      jsonRequest<PigentSession>(apiBase, '/api/v1/pigent/projects/sessions', {
+        method: 'POST',
+        body: JSON.stringify({
+          mode,
+          workspace: options.workspace,
+          kernel_name: options.kernelName,
+          approval_preference: 'automatic',
+        }),
       }),
     getSession: (id: string) => jsonRequest<PigentSession>(apiBase, `/api/v1/pigent/sessions/${id}`),
     renameSession: (id: string, title: string) => jsonRequest<PigentSession>(apiBase, `/api/v1/pigent/sessions/${id}`, {

@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from pipyter.pigent.bridge import PigentBridge, create_internal_router
 from pipyter.pigent.models import ToolFailure, success
 from pipyter.pigent.tools import BashToolService, FileToolService, revision_path
+from pipyter.protocol.models import ExecuteResponse, KernelOutput, KernelSummary
 from pipyter.protocol.pigent import PigentToolContext
 
 
@@ -19,11 +20,26 @@ class NoKernels:
         raise AssertionError("kernel not expected")
 
 
+class NamedKernels:
+    def __init__(self):
+        self.execute_calls = []
+        self.list_calls = 0
+
+    async def execute_async(self, kernel_id, code, timeout, *, store_history=True):
+        self.execute_calls.append((kernel_id, code, timeout, store_history))
+        return ExecuteResponse(kernel_id=kernel_id, execution_count=7, status="idle",
+                               outputs=[KernelOutput(type="stream", name="stdout", text="ok\n")])
+
+    def list(self):
+        self.list_calls += 1
+        return [KernelSummary(id="kernel-real", name="python-private", status="idle")]
+
+
 def run(coro):
     return asyncio.run(coro)
 
 
-def test_nul_invalid_utf8_and_relative_absolute_paths(tmp_path):
+def test_nul_invalid_utf8_and_workspace_path_boundary(tmp_path):
     service = FileToolService(tmp_path)
     with pytest.raises(ToolFailure, match="NUL"):
         run(service.read({"path": "bad\x00name"}))
@@ -36,12 +52,13 @@ def test_nul_invalid_utf8_and_relative_absolute_paths(tmp_path):
     outside.write_text("absolute", encoding="utf-8")
     try:
         relative = run(service.read({"path": "relative.txt"}))
-        absolute = run(service.read({"path": str(outside)}))
-        traversed = run(service.read({"path": "../absolute-pigent.txt"}))
         assert relative.data["content"] == "relative" and relative.data["path"] == "relative.txt"
-        assert absolute.data["content"] == "absolute" and absolute.data["path"] == outside.name
-        assert traversed.data["content"] == "absolute" and traversed.data["path"] == outside.name
-        assert str(tmp_path.parent) not in json.dumps([relative.model_dump(), absolute.model_dump(), traversed.model_dump()])
+        with pytest.raises(ToolFailure) as absolute:
+            run(service.read({"path": str(outside)}))
+        with pytest.raises(ToolFailure) as traversed:
+            run(service.read({"path": "../absolute-pigent.txt"}))
+        assert absolute.value.code == traversed.value.code == "permission_denied"
+        assert str(tmp_path.parent) not in json.dumps(relative.model_dump())
     finally:
         outside.unlink(missing_ok=True)
 
@@ -108,9 +125,9 @@ def test_same_target_mutations_are_serialized(tmp_path):
 def test_bash_outside_workspace_timeout_cancellation_and_secret_filter(tmp_path, monkeypatch):
     service = BashToolService(tmp_path)
     outside = tmp_path.parent
-    result = run(service.bash({"command": "pwd", "cwd": str(outside)}))
-    assert result.data["stdout"].strip() == str(outside)
-    assert result.data["cwd"] == outside.name
+    with pytest.raises(ToolFailure) as caught:
+        run(service.bash({"command": "pwd", "cwd": str(outside)}))
+    assert caught.value.code == "permission_denied"
     monkeypatch.setenv("OPENAI_API_KEY", "do-not-leak")
     monkeypatch.setenv("PIPYTER_PIGENT_BRIDGE_TOKEN", "bridge-secret")
     env_result = run(service.bash({"command": "printf '%s|%s' \"${OPENAI_API_KEY-unset}\" \"${PIPYTER_PIGENT_BRIDGE_TOKEN-unset}\""}))
@@ -174,6 +191,48 @@ def test_authenticated_bridge_idempotency_modes_and_text_vertical_slice(tmp_path
                                headers={"Authorization": "Bearer credential"})
         assert response.status_code == 200
         assert response.json()["error"]["code"] == "permission_denied"
+
+
+def test_bridge_session_subworkspace_scopes_file_and_bash_tools(tmp_path):
+    runtime_root = tmp_path / "runtime"
+    project_root = runtime_root / "projects" / "alpha"
+    project_root.mkdir(parents=True)
+    (runtime_root / "outside.txt").write_text("outside", encoding="utf-8")
+    bridge = PigentBridge(runtime_root, "workspace-1", NoKernels())
+    bridge.register_session("project-session", mode="auto", workspace=project_root)
+    context = PigentToolContext(
+        tool_call_id="write-1", session_id="project-session", workspace_id="workspace-1", mode="auto",
+    )
+
+    written = run(bridge.dispatch("write", {"path": "inside.txt", "content": "inside"}, context))
+    assert written.ok and (project_root / "inside.txt").read_text(encoding="utf-8") == "inside"
+    assert not (runtime_root / "inside.txt").exists()
+    escaped = run(bridge.dispatch(
+        "read", {"path": "../../outside.txt"}, context.model_copy(update={"tool_call_id": "read-2"}),
+    ))
+    assert escaped.ok is False
+    assert escaped.error is not None and escaped.error.code == "permission_denied"
+    bash = run(bridge.dispatch(
+        "bash", {"command": "pwd"}, context.model_copy(update={"tool_call_id": "bash-1"}),
+    ))
+    assert bash.ok and bash.data["stdout"].strip() == str(project_root)
+
+
+def test_kernel_execute_projects_name_from_active_backend_summary_without_path_leak(tmp_path):
+    kernels = NamedKernels()
+    bridge = PigentBridge(tmp_path, "workspace-1", kernels)
+    bridge.register_session("session-1", mode="auto", active_kernel_id="kernel-real")
+    context = PigentToolContext(tool_call_id="kernel-execute", session_id="session-1",
+                                workspace_id="workspace-1", mode="auto")
+
+    result = run(bridge.dispatch("kernel", {"action": "execute", "code": "print('ok')"}, context))
+
+    assert result.ok
+    assert result.data["name"] == "python-private"
+    assert result.data["kernel_id"] == "kernel-real"
+    assert kernels.execute_calls == [("kernel-real", "print('ok')", 30, False)]
+    assert kernels.list_calls == 1
+    assert str(tmp_path) not in json.dumps(result.model_dump())
 
 
 def test_interactive_handoff_contains_no_secret_input(tmp_path):

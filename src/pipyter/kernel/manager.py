@@ -52,6 +52,7 @@ class _KernelHandle:
     gate: threading.RLock = field(default_factory=threading.RLock)
     active_message_id: str | None = None
     active_request_id: str | None = None
+    workspace: Path | None = None
 
 
 class KernelRuntime:
@@ -121,32 +122,53 @@ class KernelRuntime:
         return result
 
     def bind_notebook(self, kernel_id: str, notebook_path: str) -> KernelSummary:
-        resolved = (self.root / notebook_path).resolve()
-        try:
-            relative = resolved.relative_to(self.root).as_posix()
-        except ValueError as error:
-            raise ValueError("Notebook path must stay inside the Workspace") from error
         handle = self._require(kernel_id)
+        kernel_root = handle.workspace or self.root
+        resolved = (kernel_root / notebook_path).resolve()
+        try:
+            relative = resolved.relative_to(kernel_root).as_posix()
+        except ValueError as error:
+            raise ValueError("Notebook path must stay inside the Kernel Workspace") from error
+        registry_key = f"{kernel_root}:{relative}"
         with self._registry_lock:
-            previous = self._notebook_bindings.get(relative)
+            previous = self._notebook_bindings.get(registry_key)
             if previous and previous != kernel_id:
                 raise RuntimeError(f"Notebook is already bound to kernel {previous}")
             if handle.notebook_path and handle.notebook_path != relative:
-                self._notebook_bindings.pop(handle.notebook_path, None)
+                self._notebook_bindings.pop(f"{kernel_root}:{handle.notebook_path}", None)
             handle.notebook_path = relative
-            self._notebook_bindings[relative] = kernel_id
+            self._notebook_bindings[registry_key] = kernel_id
             self._notify(handle)
             return self._summary(handle)
 
-    def kernel_for_notebook(self, notebook_path: str) -> str | None:
-        return self._notebook_bindings.get(notebook_path)
+    def kernel_for_notebook(self, notebook_path: str, workspace: str | Path | None = None) -> str | None:
+        kernel_root = Path(workspace).expanduser().resolve() if workspace is not None else self.root
+        return self._notebook_bindings.get(f"{kernel_root}:{notebook_path}")
+
+    def workspace_for(self, kernel_id: str) -> Path:
+        """Return the authorized working directory for a running Kernel."""
+        handle = self._require(kernel_id)
+        return handle.workspace or self.root
+
+    def owns_workspace(self, kernel_id: str, workspace: Path) -> bool:
+        try:
+            return self.workspace_for(kernel_id).resolve() == Path(workspace).expanduser().resolve()
+        except (KeyError, OSError, RuntimeError):
+            return False
 
     def start(self, kernel_name: str | None = "python3", *, environment_id: str | None = None,
-              notebook_path: str | None = None) -> KernelSummary:
+              notebook_path: str | None = None, cwd: str | Path | None = None) -> KernelSummary:
         from jupyter_client import KernelManager
 
         if environment_id and kernel_name not in {None, "", "python3"}:
             raise ValueError("Select exactly one of environment_id or kernel_name")
+        working_directory = self.root if cwd is None else Path(cwd).expanduser().resolve()
+        try:
+            working_directory.relative_to(self.root)
+        except ValueError as error:
+            raise ValueError("Kernel working directory must stay inside the Runtime Workspace") from error
+        if not working_directory.is_dir():
+            raise NotADirectoryError(working_directory)
         manager: Any
         name: str
         if environment_id:
@@ -161,11 +183,12 @@ class KernelRuntime:
             name = kernel_name or "python3"
             manager = KernelManager(kernel_name=name)
         kernel_id = str(uuid.uuid4())
-        handle = _KernelHandle(kernel_id, name, manager, None, environment_id=environment_id, status="starting")
+        handle = _KernelHandle(kernel_id, name, manager, None, environment_id=environment_id, status="starting",
+                               workspace=working_directory)
         with self._registry_lock:
             self._kernels[kernel_id] = handle
         try:
-            manager.start_kernel(cwd=str(self.root), env=_filtered_kernel_env())
+            manager.start_kernel(cwd=str(working_directory), env=_filtered_kernel_env())
             client = manager.client()
             handle.client = client
             client.start_channels()
@@ -190,9 +213,12 @@ class KernelRuntime:
             raise
 
     async def start_async(self, kernel_name: str | None = "python3", *, environment_id: str | None = None,
-                          notebook_path: str | None = None) -> KernelSummary:
+                          notebook_path: str | None = None, cwd: str | Path | None = None) -> KernelSummary:
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self._executor, lambda: self.start(kernel_name, environment_id=environment_id, notebook_path=notebook_path))
+        return await loop.run_in_executor(
+            self._executor,
+            lambda: self.start(kernel_name, environment_id=environment_id, notebook_path=notebook_path, cwd=cwd),
+        )
 
     def execute(
         self,
@@ -375,7 +401,8 @@ class KernelRuntime:
                     with self._registry_lock:
                         self._kernels.pop(kernel_id, None)
                         if handle.notebook_path:
-                            self._notebook_bindings.pop(handle.notebook_path, None)
+                            kernel_root = handle.workspace or self.root
+                            self._notebook_bindings.pop(f"{kernel_root}:{handle.notebook_path}", None)
 
     async def shutdown_async(self, kernel_id: str) -> None:
         await asyncio.get_running_loop().run_in_executor(self._executor, lambda: self.shutdown(kernel_id))

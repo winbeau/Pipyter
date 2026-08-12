@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, type ReactNode } from 'react'
 import { PIGENT_CATALOGS } from '../../../packages/protocol/src/pigent'
-import { createPigentApi, parsePigentEvent } from './api'
+import { createPigentApi, parsePigentEvent, type PigentProjectCreate, type PigentProjectCreationOptions } from './api'
 import { demoEvents, demoSession, demoTasks } from './demo'
 import { prependHistory } from './feed'
 import { DEFAULT_PIGENT_MODEL, modelChoice, sameModel, type PigentModelChoice, type PigentModelSelection } from './models'
@@ -168,6 +168,8 @@ export type PigentActions = {
   selectSession(id: string): void
   ensureSession(title?: string): Promise<PigentSession>
   newSession(): Promise<void>
+  projectCreationOptions(): Promise<PigentProjectCreationOptions>
+  newProject(options: PigentProjectCreate): Promise<void>
   renameSession(id: string, title: string): Promise<void>
   deleteSession(id: string): Promise<void>
   setSessionQuery(value: string): void
@@ -184,6 +186,7 @@ export type PigentActions = {
   setContext(context: PigentContext): void
   openShell(sessionId?: string): void
   artifactUrl(id: string, download?: boolean): string
+  refreshCapabilities(): Promise<void>
   refresh(): Promise<void>
 }
 const Context = createContext<{ state: PigentState; actions: PigentActions } | null>(null)
@@ -203,6 +206,13 @@ export function PigentProvider({ children, apiBase = '', runtimeKey = 'local:cur
     socket.onerror = () => dispatch({ type: 'connection', state: 'disconnected', error: 'Pigent event stream disconnected' })
     socket.onclose = () => { if (socketRef.current !== socket) return; dispatch({ type: 'connection', state: 'disconnected' }); const delay = Math.min(10000, 500 * 2 ** reconnectAttempts.current++); reconnectTimer.current = window.setTimeout(() => connect(session, true), delay) }
   }, [api])
+  const refreshCapabilities = useCallback(async () => {
+    try { dispatch({ type: 'capabilities', capabilities: await api.capabilities() }) }
+    catch (error) {
+      dispatch({ type: 'connection', state: stateRef.current.connectionState, error: error instanceof Error ? error.message : String(error) })
+      throw error
+    }
+  }, [api])
   const refresh = useCallback(async () => {
     try { const [sessions, capabilities] = await Promise.all([api.listSessions({ workspaceId: stateRef.current.context.workspace, query: stateRef.current.sessionQuery, limit: 50 }), api.capabilities()]); dispatch({ type: 'sessions', sessions, hasMore: sessions.length === 50 }); dispatch({ type: 'capabilities', capabilities }); const selected = sessions.find((item) => item.id === stateRef.current.activeSessionId) ?? sessions[0]; if (selected) connect(selected, selected.id === stateRef.current.activeSessionId && Object.keys(stateRef.current.eventsById).length > 0); else { dispatch({ type: 'clearActive' }); dispatch({ type: 'connection', state: 'connected' }) } }
     catch (error) { const message = error instanceof Error ? error.message : String(error); if (allowDemo) { activeSessionRef.current = demoSession; dispatch({ type: 'sessions', sessions: [demoSession], demo: true }); dispatch({ type: 'active', session: demoSession, preserveCursor: false }); for (const event of demoEvents) dispatch({ type: 'event', event }); dispatch({ type: 'connection', state: 'demo', error: message }) } else { dispatch({ type: 'sessions', sessions: [] }); dispatch({ type: 'connection', state: 'disconnected', error: message }) } }
@@ -210,10 +220,12 @@ export function PigentProvider({ children, apiBase = '', runtimeKey = 'local:cur
   useEffect(() => { void refresh(); return () => { socketRef.current?.close(); if (reconnectTimer.current) window.clearTimeout(reconnectTimer.current) } }, [refresh])
   useEffect(() => { const payload: Persisted = { pigentOpen: state.open, pigentMode: state.mode, activePigentSessionId: state.activeSessionId ?? undefined, pigentDetailOpen: state.detailOpen }; localStorage.setItem(storageKey(runtimeKey), JSON.stringify(payload)) }, [runtimeKey, state.open, state.mode, state.activeSessionId, state.detailOpen])
   const ensureSession = useCallback(async (title?: string) => { const current = activeSessionRef.current ?? stateRef.current.sessions.find((item) => item.id === stateRef.current.activeSessionId); if (current && current.id !== demoSession.id) return current; let session = await api.createSession(stateRef.current.mode, title); dispatch({ type: 'sessions', sessions: [session, ...stateRef.current.sessions.filter((item) => item.id !== demoSession.id)] }); connect(session, false); if (stateRef.current.context.activeDocument || stateRef.current.context.activeKernel) session = await api.changeContext(session.id, stateRef.current.context); activeSessionRef.current = session; return session }, [api, connect])
-  const send = useCallback(async (content: string, retryId?: string) => { const behavior = stateRef.current.runActive ? 'follow_up' : 'prompt'; const id = retryId ?? clientId('msg_client'); if (!retryId) dispatch({ type: 'user', message: { clientMessageId: id, content, behavior, state: 'pending', createdAt: new Date().toISOString() } }); else dispatch({ type: 'userUpdate', id, changes: { state: 'retrying', error: undefined } }); try { const session = await ensureSession(content.slice(0, 48)); const accepted = await api.sendMessage(session.id, id, content, behavior); dispatch({ type: 'userUpdate', id, changes: { state: 'accepted', runId: accepted.run_id, turnId: accepted.turn_id } }); dispatch({ type: 'runAccepted', runId: accepted.run_id, turnId: accepted.turn_id }) } catch (error) { dispatch({ type: 'userUpdate', id, changes: { state: 'failed', error: error instanceof Error ? error.message : String(error) } }); throw error } }, [api, ensureSession])
+  const send = useCallback(async (content: string, retryId?: string) => { const behavior = stateRef.current.runActive ? 'follow_up' : 'prompt'; const id = retryId ?? clientId('msg_client'); if (!retryId) dispatch({ type: 'user', message: { clientMessageId: id, content, behavior, state: 'pending', createdAt: new Date().toISOString() } }); else dispatch({ type: 'userUpdate', id, changes: { state: 'retrying', error: undefined } }); try { const session = await ensureSession(); const accepted = await api.sendMessage(session.id, id, content, behavior); dispatch({ type: 'userUpdate', id, changes: { state: 'accepted', runId: accepted.run_id, turnId: accepted.turn_id } }); dispatch({ type: 'runAccepted', runId: accepted.run_id, turnId: accepted.turn_id }) } catch (error) { dispatch({ type: 'userUpdate', id, changes: { state: 'failed', error: error instanceof Error ? error.message : String(error) } }); throw error } }, [api, ensureSession])
   const actions = useMemo<PigentActions>(() => ({
     selectSession: (id) => { const session = stateRef.current.sessions.find((item) => item.id === id); if (session) connect(session, id === stateRef.current.activeSessionId) },
     ensureSession, newSession: async () => { const session = await api.createSession(stateRef.current.mode); dispatch({ type: 'sessions', sessions: [session, ...stateRef.current.sessions] }); connect(session, false) },
+    projectCreationOptions: api.projectCreationOptions,
+    newProject: async (options) => { const session = await api.createProjectSession(stateRef.current.mode, options); dispatch({ type: 'sessions', sessions: [session, ...stateRef.current.sessions] }); connect(session, false) },
     renameSession: async (id, title) => { const session = await api.renameSession(id, title); dispatch({ type: 'sessions', sessions: stateRef.current.sessions.map((item) => item.id === id ? session : item) }) },
     deleteSession: async (id) => { try { await api.deleteSession(id); const sessions = stateRef.current.sessions.filter((item) => item.id !== id); dispatch({ type: 'sessions', sessions }); if (id === stateRef.current.activeSessionId) { if (sessions[0]) connect(sessions[0], false); else { socketRef.current?.close(); socketRef.current = null; activeSessionRef.current = null; dispatch({ type: 'clearActive' }) } } } catch (error) { dispatch({ type: 'connection', state: stateRef.current.connectionState, error: error instanceof Error ? error.message : String(error) }); throw error } },
     setSessionQuery: (value) => { dispatch({ type: 'query', value }); const sequence = ++searchSequence.current; void api.listSessions({ workspaceId: stateRef.current.context.workspace, query: value, limit: 50 }).then((sessions) => { if (sequence === searchSequence.current) dispatch({ type: 'sessions', sessions, hasMore: sessions.length === 50 }) }).catch((error) => { if (sequence === searchSequence.current) dispatch({ type: 'connection', state: stateRef.current.connectionState, error: error instanceof Error ? error.message : String(error) }) }) },
@@ -224,8 +236,8 @@ export function PigentProvider({ children, apiBase = '', runtimeKey = 'local:cur
     send, retry: (message) => send(message.content, message.clientMessageId), stop: async () => { const session = stateRef.current.sessions.find((item) => item.id === stateRef.current.activeSessionId); if (!session || stateRef.current.stopping) return; dispatch({ type: 'stopping', value: true }); try { const result = await api.abort(session.id, stateRef.current.runId ?? undefined); if (result.already_settled) dispatch({ type: 'stopping', value: false }) } catch (error) { dispatch({ type: 'stopping', value: false }); throw error } },
     resolveInteraction: async (interactionId, revision, actionId) => { dispatch({ type: 'interactionPending', id: interactionId }); const decisionId = decisionIds.current[interactionId] ??= clientId('decision'); try { const result = await api.resolveInteraction(interactionId, revision, decisionId, actionId); delete decisionIds.current[interactionId]; dispatch({ type: 'interactionResolved', id: interactionId, receipt: result.receipt }) } catch (error) { dispatch({ type: 'interactionPending', id: null }); throw error } },
     setOpen: (open) => dispatch({ type: 'open', open }), setDetailOpen: (open) => dispatch({ type: 'detail', open }), setContext: (context) => { const merged = { ...stateRef.current.context, ...context }; dispatch({ type: 'context', context }); const session = activeSessionRef.current ?? stateRef.current.sessions.find((item) => item.id === stateRef.current.activeSessionId); if (session && session.id !== demoSession.id) void api.changeContext(session.id, merged) },
-    openShell: (sessionId) => { window.dispatchEvent(new CustomEvent('pipyter:open-shell', { detail: { sessionId } })); if (window.location.hash !== '#/workspace') window.location.hash = '#/workspace' }, artifactUrl: api.artifactUrl, refresh,
-  }), [api, connect, ensureSession, refresh, send])
+    openShell: (sessionId) => { window.dispatchEvent(new CustomEvent('pipyter:open-shell', { detail: { sessionId } })); if (window.location.hash !== '#/workspace') window.location.hash = '#/workspace' }, artifactUrl: api.artifactUrl, refreshCapabilities, refresh,
+  }), [api, connect, ensureSession, refresh, refreshCapabilities, send])
   return <Context.Provider value={{ state, actions }}>{children}</Context.Provider>
 }
 export function usePigent() { const value = useContext(Context); if (!value) throw new Error('usePigent must be used within PigentProvider'); return value }
