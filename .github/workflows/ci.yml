@@ -21,9 +21,9 @@ jobs:
           node-version: "22.19.0"
           cache: npm
           cache-dependency-path: packages/pigent/package-lock.json
-      - run: uv sync --extra dev --frozen
       - run: npm ci --prefix packages/pigent
       - run: npm run payload:build --prefix packages/pigent
+      - run: uv sync --extra dev --frozen
       - run: npm run payload:verify --prefix packages/pigent
       - run: npm run check:engine-independence --prefix packages/pigent
       - run: uv run pytest -q
@@ -91,5 +91,5 @@ jobs:
       - run: npm run payload:build --prefix packages/pigent
       - run: npm run payload:verify --prefix packages/pigent
       - run: npm run check:engine-independence --prefix packages/pigent
-      - run: uv build --clear
+      - run: rm -rf dist && uv build
       - run: uv run python scripts/release_verify.py

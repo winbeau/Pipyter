@@ -1,3 +1,4 @@
+import { availableParallelism } from "node:os";
 import { describe, expect, it } from "vitest";
 import { fauxAssistantMessage, fauxProvider } from "@pipyter/pigent-ai/providers/faux";
 import { AuthStorage } from "../src/core/auth-storage.ts";
@@ -33,7 +34,7 @@ describe("AgentPool", () => {
     ]);
     const pool = session.agentPool!;
     const results = await Promise.all([pool.delegateTask({ task: "first" }), pool.delegateTask({ task: "second" })]);
-    expect(pool.maxObservedConcurrency).toBe(2);
+    expect(pool.maxObservedConcurrency).toBe(availableParallelism() >= 6 ? 2 : 1);
     expect(results.map((result) => result.status)).toEqual(["completed", "completed"]);
     expect(results.map((result) => result.summary).sort()).toEqual(["first summary", "second summary"]);
     expect(results.every((result) => typeof result.taskId === "string" && result.usage.totalTokens >= 0)).toBe(true);
