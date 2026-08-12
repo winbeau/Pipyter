@@ -15,6 +15,7 @@ AI-native scientific workspace built around Jupyter, remote compute, and agent-a
 
 - [Workspace v0.1](docs/plans/workspace-v0.1/README.md)
 - [Pigent v0.1](docs/plans/pigent-v0.1/README.md) — ten Agent tools, Ask/Plan/Auto, full runtime-user execution, Pigent/Shell design migration, first-party BeauPi code embedding, and PyPI packaging
+- [Pigent modern Web Agent v0.2](docs/plans/pigent-modern-v0.2/README.md) — local DeepSeek migration, tool-ui-derived interaction surfaces, trustworthy session UX, and temporary/maintained uv Kernel environments
 - [Remote deployment v0.1](docs/plans/remote-deployment-v0.1/README.md) — Pi5 gateway, direct LAN AutoDL Runtime, non-80/443 reverse proxying, Runtime selection, and mutually exclusive user modes
 
 ## User installation
