@@ -8,11 +8,13 @@ export type KernelOutputType = 'stream' | 'execute_result' | 'display_data' | 'e
 export type HealthResponse = {
   status: 'ok'
   protocol_version: typeof protocolVersion
+  node_id: string
   workspace_id: string
 }
 
 export type WorkspaceSummary = {
   protocol_version: typeof protocolVersion
+  node_id: string
   workspace_id: string
   project_id: string
   name: string

@@ -8,6 +8,7 @@ import pytest
 
 from pipyter.runtime.jupyter import build_jupyter_command, new_runtime_token, token_fingerprint
 from pipyter.runtime.manager import RuntimeManager
+from pipyter.exceptions import RuntimeStateError
 from pipyter.runtime.state import RuntimeState, pid_alive
 from pipyter.workspace.project import link_project
 
@@ -61,6 +62,12 @@ def test_pid_alive_detects_own_process():
     assert not pid_alive(None)
     assert not pid_alive(0)
     assert not pid_alive(999_999_999)
+
+
+def test_manager_rejects_non_loopback_runtime_api(tmp_path):
+    project = link_project(tmp_path, name="remote-rejected")
+    with pytest.raises(RuntimeStateError, match="local-only"):
+        RuntimeManager(project).start(api_host="0.0.0.0", api_port=18764, start_jupyter=False)
 
 
 def test_manager_reuses_live_runtime(tmp_path):

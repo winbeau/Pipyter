@@ -21,6 +21,38 @@ class PigentConfigError(ValueError):
         self.path = path
 
 
+_FORBIDDEN_SETTING_KEYS = {
+    "baseurl", "apiurl", "endpoint", "apiendpoint", "apikey", "key", "token",
+    "accesstoken", "refreshtoken", "password", "authorization", "headers",
+    "secretheaders", "credential", "credentials", "clientsecret",
+}
+
+PIGENT_UI_MODELS: tuple[dict[str, str], ...] = (
+    {"id": "ds-v4-flash", "label": "ds-v4-flash", "provider": "deepseek", "model": "deepseek-v4-flash"},
+    {"id": "pro", "label": "pro", "provider": "deepseek", "model": "deepseek-v4-pro"},
+    {"id": "gpt-5.6-luna", "label": "gpt-5.6-luna", "provider": "openai", "model": "gpt-5.6-luna"},
+    {"id": "terra", "label": "terra", "provider": "openai", "model": "gpt-5.6-terra"},
+    {"id": "sol", "label": "sol", "provider": "openai", "model": "gpt-5.6-sol"},
+)
+_UI_MODEL_PAIRS = frozenset((item["provider"], item["model"]) for item in PIGENT_UI_MODELS)
+
+
+def _contains_forbidden_setting(value: Any) -> bool:
+    if isinstance(value, dict):
+        for key, child in value.items():
+            normalized = "".join(character for character in str(key).lower() if character.isalnum())
+            if (
+                normalized in _FORBIDDEN_SETTING_KEYS
+                or normalized.startswith("secret")
+                or normalized.endswith(("apikey", "accesstoken", "refreshtoken", "password", "credential"))
+            ):
+                return True
+            if _contains_forbidden_setting(child):
+                return True
+        return False
+    return isinstance(value, list) and any(_contains_forbidden_setting(item) for item in value)
+
+
 def pigent_config_dir(config_root: str | os.PathLike[str] | None = None) -> Path:
     if config_root is not None:
         root = Path(config_root).expanduser()
@@ -113,14 +145,7 @@ class PigentConfigStore:
 
     def read_settings(self) -> ConfigDocument:
         document = self._read(self.settings_path)
-        forbidden = {"baseUrl", "apiKey", "key", "accessToken", "refreshToken", "secretHeaders"}
-        def visit(value: Any) -> bool:
-            if isinstance(value, dict):
-                return any(key in forbidden or visit(item) for key, item in value.items())
-            if isinstance(value, list):
-                return any(visit(item) for item in value)
-            return False
-        if visit(document.value):
+        if _contains_forbidden_setting(document.value):
             raise PigentConfigError(document.path, "settings.json contains secret/endpoint fields")
         return document
 
@@ -137,12 +162,7 @@ class PigentConfigStore:
         return ConfigDocument(path, value, revision)
 
     def write_settings(self, value: dict[str, Any], expected_revision: str | None = None) -> ConfigDocument:
-        forbidden = {"baseUrl", "apiKey", "key", "accessToken", "refreshToken", "secretHeaders"}
-        def visit(item: Any) -> bool:
-            if isinstance(item, dict):
-                return any(key in forbidden or visit(child) for key, child in item.items())
-            return isinstance(item, list) and any(visit(child) for child in item)
-        if visit(value):
+        if _contains_forbidden_setting(value):
             raise PigentConfigError(self.settings_path, "settings.json contains secret/endpoint fields")
         return self._write(self.settings_path, value, expected_revision)
 
@@ -158,11 +178,13 @@ class PigentConfigStore:
             return bool(name) and name.replace("_", "a").isalnum() and bool(os.environ.get(name))
         return True
 
-    def resolve_model(self) -> dict[str, Any]:
-        settings = self.read_settings().value
-        auth = self.read_auth().value
-        provider = settings.get("defaultProvider")
-        model = settings.get("defaultModel")
+    def _resolve_selection(
+        self,
+        settings: dict[str, Any],
+        auth: dict[str, Any],
+        provider: Any,
+        model: Any,
+    ) -> dict[str, Any]:
         if not isinstance(provider, str) or not provider or not isinstance(model, str) or not model:
             raise PigentConfigError(self.settings_path, "model_configuration_required")
         definitions = settings.get("models", {}).get("providers", {}) if isinstance(settings.get("models"), dict) else {}
@@ -182,6 +204,45 @@ class PigentConfigStore:
             if not usable:
                 raise PigentConfigError(self.auth_path, "model_configuration_required")
         return {"provider": provider, "model": model, "baseUrl": entry.get("baseUrl") if isinstance(entry, dict) else None}
+
+    def resolve_selected_model(self, provider: str, model: str) -> dict[str, Any]:
+        settings = self.read_settings().value
+        auth = self.read_auth().value
+        return self._resolve_selection(settings, auth, provider, model)
+
+    def resolve_model(self) -> dict[str, Any]:
+        settings = self.read_settings().value
+        auth = self.read_auth().value
+        return self._resolve_selection(settings, auth, settings.get("defaultProvider"), settings.get("defaultModel"))
+
+    def select_ui_model(
+        self,
+        provider: str,
+        model: str,
+        expected_revision: str | None = None,
+    ) -> tuple[ConfigDocument, dict[str, Any]]:
+        if (provider, model) not in _UI_MODEL_PAIRS:
+            raise PigentConfigError(self.settings_path, "unsupported Pigent model selection")
+        settings = self.read_settings()
+        auth = self.read_auth().value
+        resolved = self._resolve_selection(settings.value, auth, provider, model)
+        value = dict(settings.value)
+        value.update({"defaultProvider": provider, "defaultModel": model})
+        written = self.write_settings(value, expected_revision or settings.revision)
+        return written, resolved
+
+    def ui_model_state(self) -> dict[str, Any]:
+        settings = self.read_settings()
+        current = {"provider": settings.value.get("defaultProvider"), "model": settings.value.get("defaultModel")}
+        choices = []
+        for item in PIGENT_UI_MODELS:
+            try:
+                self.resolve_selected_model(item["provider"], item["model"])
+                configured = True
+            except PigentConfigError:
+                configured = False
+            choices.append({**item, "configured": configured})
+        return {"model": current, "models": choices, "settings_revision": settings.revision}
 
     def sanitized(self) -> dict[str, Any]:
         settings = self.read_settings()

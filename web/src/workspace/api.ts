@@ -9,28 +9,22 @@ import type {
   RunningResponse,
   WorkspaceSummary,
 } from '../../../packages/protocol/src/index'
+import { apiUrl, jsonRequest } from '../api/client'
 import { demoExecute, demoImageDataUrl, demoListFiles, demoNotebookCells, demoReadText, demoTerminal, demoWorkspace } from './demo'
 
-const BASE = ''
-
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
-    ...init,
-  })
-  if (!response.ok) {
-    const detail = await response.text().catch(() => '')
-    throw new Error(`${response.status} ${response.statusText}${detail ? `: ${detail}` : ''}`)
+/** Thrown when the configured Runtime cannot be reached. */
+export class ApiUnavailableError extends Error {
+  constructor(message = 'Runtime API unavailable') {
+    super(message)
   }
-  if (response.status === 204) return undefined as T
-  return (await response.json()) as T
 }
 
-/** Thrown when the Runtime API cannot be reached at all. */
-export class ApiUnavailableError extends Error {
-  constructor() {
-    super('Runtime API unavailable')
-  }
+export class ApiIdentityError extends Error {}
+
+export type RuntimeProbeOptions = {
+  allowDemo?: boolean
+  expectedNodeId?: string
+  expectedWorkspaceId?: string
 }
 
 export const demoKernelId = 'demo-kernel'
@@ -79,21 +73,35 @@ export interface WorkspaceApiClient {
   running(): Promise<RunningResponse>
 }
 
-/** Probe the runtime; resolves to 'api' or falls back to 'demo'. */
-export async function detectMode(): Promise<ApiMode> {
+/** Probe the runtime. Demo fallback is explicit and only applies to network failure. */
+export async function detectMode(apiBase = '', options: RuntimeProbeOptions = {}): Promise<ApiMode> {
+  const controller = new AbortController()
+  const timer = window.setTimeout(() => controller.abort(), 2500)
+  let response: Response
   try {
-    const controller = new AbortController()
-    const timer = window.setTimeout(() => controller.abort(), 2500)
-    const response = await fetch(`${BASE}/api/v1/health`, { signal: controller.signal })
+    response = await fetch(apiUrl(apiBase, '/api/v1/health'), { signal: controller.signal })
+  } catch (error) {
+    if (options.allowDemo) return 'demo'
+    throw new ApiUnavailableError(error instanceof Error ? `Runtime API unavailable: ${error.message}` : undefined)
+  } finally {
     window.clearTimeout(timer)
-    if (response.ok) return 'api'
-    return 'demo'
-  } catch {
-    return 'demo'
   }
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '')
+    throw new ApiUnavailableError(`Runtime health failed: ${response.status} ${response.statusText}${detail ? `: ${detail}` : ''}`)
+  }
+  const health = await response.json() as HealthResponse
+  if (options.expectedNodeId && health.node_id !== options.expectedNodeId) {
+    throw new ApiIdentityError(`Runtime node mismatch: expected ${options.expectedNodeId}, received ${health.node_id}`)
+  }
+  if (options.expectedWorkspaceId && health.workspace_id !== options.expectedWorkspaceId) {
+    throw new ApiIdentityError(`Runtime workspace mismatch: expected ${options.expectedWorkspaceId}, received ${health.workspace_id}`)
+  }
+  return 'api'
 }
 
-export function createApiClient(mode: ApiMode): WorkspaceApiClient {
+export function createApiClient(mode: ApiMode, apiBase = ''): WorkspaceApiClient {
+  const request = <T,>(path: string, init?: RequestInit) => jsonRequest<T>(apiBase, path, init)
   if (mode === 'api') {
     return {
       mode,
@@ -106,8 +114,8 @@ export function createApiClient(mode: ApiMode): WorkspaceApiClient {
           method: 'PUT',
           body: JSON.stringify({ content }),
         }),
-      imageUrl: (path) => `${BASE}/api/v1/files/image?path=${encodeURIComponent(path)}`,
-      downloadUrl: (path) => `${BASE}/api/v1/files/download?path=${encodeURIComponent(path)}`,
+      imageUrl: (path) => apiUrl(apiBase, `/api/v1/files/image?path=${encodeURIComponent(path)}`),
+      downloadUrl: (path) => apiUrl(apiBase, `/api/v1/files/download?path=${encodeURIComponent(path)}`),
       createDirectory: (path) =>
         request<FileEntry>('/api/v1/files/directory', { method: 'POST', body: JSON.stringify({ path }) }),
       deletePath: (path) => request<void>(`/api/v1/files?path=${encodeURIComponent(path)}`, { method: 'DELETE' }),
@@ -138,7 +146,7 @@ export function createApiClient(mode: ApiMode): WorkspaceApiClient {
   let demoCount = 2
   return {
     mode,
-    health: async () => ({ status: 'ok', protocol_version: '0.1', workspace_id: demoWorkspace.workspace_id }),
+    health: async () => ({ status: 'ok', protocol_version: '0.1', node_id: 'demo', workspace_id: demoWorkspace.workspace_id }),
     workspace: async () => ({ ...demoWorkspace }),
     listFiles: async (path = '.') => demoListFiles(path),
     readFile: async (path) => ({ path, content: demoReadText(path), encoding: 'utf-8' }),

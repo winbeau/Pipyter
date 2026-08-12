@@ -1,0 +1,17 @@
+[Unit]
+Description=Pipyter compute-node Runtime
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=%h/.config/pipyter/node.env
+ExecStart=%h/.local/bin/pipyter node serve ${PIPYTER_WORKSPACE} --host ${PIPYTER_NODE_HOST} --port ${PIPYTER_NODE_PORT} --node-id ${PIPYTER_NODE_ID} --token-file %h/.config/pipyter/runtime-token --allowed-origin ${PIPYTER_GATEWAY_ORIGIN}
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=20
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target

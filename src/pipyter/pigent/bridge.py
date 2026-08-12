@@ -33,6 +33,7 @@ class BridgeSession:
     workspace_id: str
     workspace: Path
     mode: PigentMode
+    active_document: str | None = None
     active_kernel_id: str | None = None
 
 
@@ -69,16 +70,36 @@ class PigentBridge:
         self._cache: dict[tuple[str, str], _Cached] = {}
         self._call_locks: dict[tuple[str, str], asyncio.Lock] = {}
 
-    def register_session(self, session_id: str, *, mode: Any, active_kernel_id: str | None = None) -> BridgeSession:
-        session = BridgeSession(session_id, self.workspace_id, self.workspace, normalize_mode(mode), active_kernel_id)
+    def register_session(
+        self,
+        session_id: str,
+        *,
+        mode: Any,
+        active_document: str | None = None,
+        active_kernel_id: str | None = None,
+    ) -> BridgeSession:
+        session = BridgeSession(
+            session_id, self.workspace_id, self.workspace, normalize_mode(mode), active_document, active_kernel_id,
+        )
         self.sessions[session_id] = session
         return session
 
-    def update_session(self, session_id: str, *, mode: Any | None = None, active_kernel_id: str | None = None) -> None:
+    def update_session(
+        self,
+        session_id: str,
+        *,
+        mode: Any | None = None,
+        active_document: str | None = None,
+        clear_active_document: bool = False,
+        active_kernel_id: str | None = None,
+        clear_active_kernel: bool = False,
+    ) -> None:
         session = self._session(session_id)
         if mode is not None:
             session.mode = normalize_mode(mode)
-        if active_kernel_id is not None:
+        if clear_active_document or active_document is not None:
+            session.active_document = active_document
+        if clear_active_kernel or active_kernel_id is not None:
             session.active_kernel_id = active_kernel_id
 
     def register_handler(self, tool: str, handler: ToolHandler) -> None:
@@ -93,8 +114,12 @@ class PigentBridge:
             session = self._session(context.session_id)
             if context.workspace_id != session.workspace_id:
                 raise ToolFailure("permission_denied", "Session does not own the requested workspace")
-            trusted = context.model_copy(update={"mode": session.mode, "workspace_id": session.workspace_id,
-                                                 "active_kernel_id": session.active_kernel_id})
+            trusted = context.model_copy(update={
+                "mode": session.mode,
+                "workspace_id": session.workspace_id,
+                "active_document": {"path": session.active_document} if session.active_document else None,
+                "active_kernel_id": session.active_kernel_id,
+            })
             validate_action(session.mode, tool, arguments)
             key = (session.session_id, context.tool_call_id)
             fingerprint = hashlib.sha256(json.dumps([tool, arguments], sort_keys=True, default=str).encode()).hexdigest()
@@ -129,7 +154,11 @@ class PigentBridge:
         if tool == "bash":
             return await self.bash_service.bash(arguments)
         if tool == "notebook":
-            return await self.notebooks.dispatch(arguments, kernel_id=context.active_kernel_id)
+            notebook_arguments = dict(arguments)
+            active_document = context.active_document or {}
+            if not notebook_arguments.get("path") and active_document.get("path"):
+                notebook_arguments["path"] = active_document["path"]
+            return await self.notebooks.dispatch(notebook_arguments, kernel_id=context.active_kernel_id)
         if tool == "kernel":
             return await self._kernel(arguments, context.active_kernel_id)
         if tool == "inspect":

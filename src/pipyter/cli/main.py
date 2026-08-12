@@ -12,10 +12,12 @@ import webbrowser
 from pathlib import Path
 
 from .. import __version__
+from ..admin import AdminConfigStore, MULTI_USER_MODE, SINGLE_USER_MODE
 from ..auth.device import login_local, login_with_device_flow
 from ..config import load_credentials
 from ..exceptions import PipyterError, ProjectNotLinkedError
 from ..runtime.manager import RuntimeManager
+from ..server.security import bridge_endpoint, is_loopback_host
 from ..pigent.config import PigentConfigError, PigentConfigStore
 from ..pigent.resources import diagnostics as pigent_diagnostics
 from ..workspace.project import find_project, link_project, load_project
@@ -65,6 +67,33 @@ def build_parser() -> argparse.ArgumentParser:
     lab.add_argument("--port", type=int, default=8765)
     lab.add_argument("--no-browser", action="store_true", help="Do not open a browser tab automatically")
     lab.add_argument("--verbose", action="store_true", help="Show per-request access logs")
+
+    node = commands.add_parser("node", help="Run and manage a compute-node Runtime")
+    node_commands = node.add_subparsers(dest="node_command", required=True)
+    node_serve = node_commands.add_parser("serve", help="Serve one compute Workspace without opening a browser")
+    node_serve.add_argument("path", nargs="?", default=".")
+    node_serve.add_argument("--host", default="127.0.0.1")
+    node_serve.add_argument("--port", type=int, default=8765)
+    node_serve.add_argument("--token-file", help="Restricted file containing the Runtime Bearer token")
+    node_serve.add_argument("--allowed-origin", action="append", default=[])
+    node_serve.add_argument("--node-id")
+    node_serve.add_argument("--user", help="Managed user selected from multi-user admin configuration")
+    node_serve.add_argument("--verbose", action="store_true")
+
+    admin = commands.add_parser("admin", help="Manage deployment mode and user directory layout")
+    admin_commands = admin.add_subparsers(dest="admin_command")
+    admin_commands.add_parser("status", help="Show deployment mode and managed users")
+    admin_mode = admin_commands.add_parser("mode", help="Set the mutually exclusive deployment mode")
+    admin_mode_commands = admin_mode.add_subparsers(dest="admin_mode_command", required=True)
+    admin_mode_set = admin_mode_commands.add_parser("set")
+    admin_mode_set.add_argument("mode", choices=[SINGLE_USER_MODE, MULTI_USER_MODE])
+    admin_mode_set.add_argument("--users-root")
+    admin_mode_set.add_argument("--force", action="store_true", help="Acknowledge an explicit mode switch")
+    admin_user = admin_commands.add_parser("user", help="Manage multi-user directory layouts")
+    admin_user_commands = admin_user.add_subparsers(dest="admin_user_command", required=True)
+    admin_user_add = admin_user_commands.add_parser("add")
+    admin_user_add.add_argument("name")
+    admin_user_commands.add_parser("list")
     return parser
 
 
@@ -88,6 +117,10 @@ def main(argv: list[str] | None = None) -> int:
             return _serve(args)
         if args.command == "lab":
             return _lab(args)
+        if args.command == "node":
+            return _node(args)
+        if args.command == "admin":
+            return _admin(args)
     except PipyterError as error:
         print(f"pipyter: {error}", file=sys.stderr)
         return 2
@@ -107,7 +140,13 @@ def _auth(args: argparse.Namespace) -> int:
 
 def _project(args: argparse.Namespace) -> int:
     if args.project_command == "link":
-        binding = link_project(args.path, name=args.name, force=args.force)
+        credentials = load_credentials()
+        binding = link_project(
+            args.path,
+            account_id=credentials.account_id if credentials else "local",
+            name=args.name,
+            force=args.force,
+        )
         print(json.dumps(binding.to_dict(), indent=2))
         return 0
     binding = load_project(args.path)
@@ -116,6 +155,9 @@ def _project(args: argparse.Namespace) -> int:
 
 
 def _up(args: argparse.Namespace) -> int:
+    _require_single_user_mode("pipyter up")
+    if not is_loopback_host(args.api_host):
+        raise PipyterError("pipyter up is local-only; use 'pipyter node serve' for a remote Runtime")
     project = load_project(args.path)
     manager = RuntimeManager(project)
     state = manager.start(
@@ -193,9 +235,15 @@ def _serve(args: argparse.Namespace) -> int:
 
     from ..server.app import create_app
 
+    _require_single_user_mode("pipyter serve")
     project = load_project(args.path)
+    if not is_loopback_host(args.host):
+        raise PipyterError("pipyter serve is local-only; use 'pipyter node serve' for a remote Runtime")
+    token = os.environ.get("PIPYTER_RUNTIME_TOKEN")
+    internal_endpoint = bridge_endpoint(args.host, args.port)
     if args.reload:
         os.environ["PIPYTER_WORKSPACE_ROOT"] = str(project.root)
+        os.environ["PIPYTER_PIGENT_BRIDGE_ENDPOINT"] = internal_endpoint
         uvicorn.run(
             "pipyter.server.app:create_app",
             factory=True,
@@ -204,7 +252,11 @@ def _serve(args: argparse.Namespace) -> int:
             reload=True,
         )
     else:
-        uvicorn.run(create_app(project.root), host=args.host, port=args.port)
+        uvicorn.run(
+            create_app(project.root, runtime_token=token, bridge_endpoint=internal_endpoint),
+            host=args.host,
+            port=args.port,
+        )
     return 0
 
 
@@ -227,6 +279,10 @@ def _lab(args: argparse.Namespace) -> int:
     portal and API on one origin, and open the browser at the Workspace page."""
     import uvicorn
 
+    _require_single_user_mode("pipyter lab")
+    if not is_loopback_host(args.host):
+        raise PipyterError("pipyter lab is local-only; use 'pipyter node serve' for a remote Runtime")
+
     from ..server.app import create_app
 
     try:
@@ -241,13 +297,136 @@ def _lab(args: argparse.Namespace) -> int:
     if not args.no_browser:
         threading.Timer(0.8, lambda: _open_browser(url)).start()
     uvicorn.run(
-        create_app(project.root),
+        create_app(
+            project.root,
+            bridge_endpoint=bridge_endpoint(args.host, args.port),
+        ),
         host=args.host,
         port=args.port,
         access_log=args.verbose,
         log_level="info" if args.verbose else "warning",
     )
     return 0
+
+
+def _node(args: argparse.Namespace) -> int:
+    import uvicorn
+
+    from ..server.app import create_app
+    from ..server.security import read_token_file
+
+    project = load_project(args.path)
+    config_root: Path | None = None
+    store = AdminConfigStore()
+    config = store.read()
+    if config.mode == MULTI_USER_MODE and not args.user:
+        raise PipyterError("multi-user mode requires 'pipyter node serve --user <name>'")
+    if config.mode == SINGLE_USER_MODE and args.user:
+        raise PipyterError("--user is available only in multi-user mode")
+    if args.user:
+        if args.user not in config.users:
+            raise PipyterError(f"Managed user is not registered: {args.user}")
+        layout = store.layout(args.user, config=config)
+        try:
+            project.root.relative_to(layout.workspaces_root)
+        except ValueError as error:
+            raise PipyterError(
+                f"Workspace {project.root} is outside managed user root {layout.workspaces_root}"
+            ) from error
+        config_root = layout.config_root
+    token = read_token_file(args.token_file) if args.token_file else os.environ.get("PIPYTER_RUNTIME_TOKEN")
+    origins = args.allowed_origin or [
+        value.strip() for value in os.environ.get("PIPYTER_ALLOWED_ORIGINS", "").split(",") if value.strip()
+    ]
+    if not is_loopback_host(args.host) and not token:
+        raise PipyterError("A Runtime token is required when node serve binds a non-loopback host")
+    if not is_loopback_host(args.host) and not origins:
+        raise PipyterError("At least one --allowed-origin is required for a non-loopback node")
+    node_id = args.node_id or os.environ.get("PIPYTER_NODE_ID") or socket.gethostname()
+    print(f"Pipyter node {node_id}: http://{args.host}:{args.port}", flush=True)
+    print(f"Workspace root: {project.root}", flush=True)
+    if token:
+        print("Runtime API authentication: enabled", flush=True)
+    uvicorn.run(
+        create_app(
+            project.root,
+            runtime_token=token,
+            allowed_origins=origins or None,
+            bridge_endpoint=bridge_endpoint(args.host, args.port),
+            config_root=config_root,
+            node_id=node_id,
+        ),
+        host=args.host,
+        port=args.port,
+        access_log=args.verbose,
+        log_level="info" if args.verbose else "warning",
+    )
+    return 0
+
+
+def _admin(args: argparse.Namespace) -> int:
+    store = AdminConfigStore()
+    if args.admin_command is None:
+        if sys.stdin.isatty() and sys.stdout.isatty():
+            return _admin_console(store)
+        print(json.dumps(store.status(), ensure_ascii=False, indent=2))
+        return 0
+    if args.admin_command == "status":
+        print(json.dumps(store.status(), ensure_ascii=False, indent=2))
+        return 0
+    if args.admin_command == "mode" and args.admin_mode_command == "set":
+        config = store.set_mode(
+            args.mode,
+            users_root=args.users_root,
+            force=args.force,
+        )
+        print(json.dumps(config.to_dict(), ensure_ascii=False, indent=2))
+        return 0
+    if args.admin_command == "user" and args.admin_user_command == "add":
+        print(json.dumps(store.add_user(args.name).to_dict(), ensure_ascii=False, indent=2))
+        return 0
+    if args.admin_command == "user" and args.admin_user_command == "list":
+        print(json.dumps([item.to_dict() for item in store.users()], ensure_ascii=False, indent=2))
+        return 0
+    raise PipyterError("Unsupported admin command")
+
+
+def _admin_console(store: AdminConfigStore) -> int:
+    while True:
+        status = store.status()
+        print(f"\nPipyter admin · mode: {status['mode']}")
+        print("1) Use single-user mode")
+        print("2) Use multi-user mode")
+        print("3) Add managed user")
+        print("4) Show status")
+        print("q) Quit")
+        choice = input("Select: ").strip().lower()
+        if choice in {"q", "quit", "exit"}:
+            return 0
+        if choice == "1":
+            store.set_mode(SINGLE_USER_MODE, force=True)
+        elif choice == "2":
+            root = input("Users root: ").strip()
+            if root:
+                store.set_mode(MULTI_USER_MODE, users_root=root, force=True)
+        elif choice == "3":
+            name = input("Managed user name: ").strip()
+            if name:
+                layout = store.add_user(name)
+                print(json.dumps(layout.to_dict(), ensure_ascii=False, indent=2))
+        elif choice == "4":
+            print(json.dumps(status, ensure_ascii=False, indent=2))
+        else:
+            print("Unknown selection")
+
+
+def _require_single_user_mode(command: str) -> None:
+    config = AdminConfigStore().read()
+    if config.mode != SINGLE_USER_MODE:
+        raise PipyterError(
+            f"{command} is a single-user command; switch with "
+            "'pipyter admin mode set single-user --force' or run a managed node with --user"
+        )
 
 
 def _writable(path: Path) -> bool:

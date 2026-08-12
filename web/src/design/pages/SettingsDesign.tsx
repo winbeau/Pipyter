@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 import { ChevronDown } from 'lucide-react'
 import type { CodeThemeId, CodeThemeOption, WorkspaceDensity } from '../../appearance'
 
@@ -53,6 +53,7 @@ export type SettingsDesignProps = {
   density: WorkspaceDensity
   onCodeThemeChange: (theme: CodeThemeId) => void
   onDensityChange: (density: WorkspaceDensity) => void
+  providersContent?: ReactNode
 }
 
 export function SettingsDesign({
@@ -106,6 +107,7 @@ export function SettingsDesign({
   density,
   onCodeThemeChange,
   onDensityChange,
+  providersContent,
 }: SettingsDesignProps) {
   return (
     <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column", minWidth: "0", fontFamily: "'Inter',sans-serif", "--bg": "#F7F6F3", "--surface": "#FFFFFF", "--surface-2": "#F7F6F3", "--border": "#EDECE9", "--text": "#37352F", "--text-2": "#787774", "--text-3": "#9B9A97", "--accent": "#2383E2", "--accent-soft": "#E3F2FD", "--accent-dark": "#0D47A1", "--dark-bg": "#1B1815", "--dark-surface": "#242019", "--dark-surface-2": "#2D281F", "--dark-border": "#3A342A", "--dark-text": "#EDE7DC", "--dark-text-2": "#A79C89", "--mono": "'IBM Plex Mono',monospace", background: "var(--bg)", color: "var(--text)" } as CSSProperties}>
@@ -456,7 +458,7 @@ export function SettingsDesign({
               </>
             )}
             {isProviders && (
-              <>
+              providersContent ?? <>
                 <div style={{ fontSize: "20px", fontWeight: "600", marginBottom: "24px" } as CSSProperties}>
                   {"AI Providers"}
                 </div>

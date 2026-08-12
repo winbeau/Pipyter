@@ -10,7 +10,7 @@ import type { Keymap } from './keymap'
 
 export type { FileEntry, KernelOutput, KernelSummary, RunningResponse, WorkspaceSummary }
 
-export type Mode = 'connecting' | 'api' | 'demo'
+export type Mode = 'connecting' | 'api' | 'demo' | 'error'
 export type DocKind = 'notebook' | 'text' | 'image'
 export type LeftTab = 'files' | 'running' | 'outline'
 

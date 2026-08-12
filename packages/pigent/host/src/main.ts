@@ -7,7 +7,7 @@ import {
 } from "@pipyter/pigent-runtime";
 import { attachJsonlLineReader, serializeJsonLine } from "@pipyter/pigent-runtime";
 import { EVENT_TYPES, EventEmitter } from "./events.js";
-import { ACTION_FILTERS, CATALOGS, createToolDefinitions, type Mode, TOOL_NAMES } from "./tools.js";
+import { ACTION_FILTERS, CATALOGS, createToolDefinitions, type Mode, type ToolSessionContext, TOOL_NAMES } from "./tools.js";
 
 const VERSION = "0.1.0";
 const PROTOCOL_VERSION = "0.1";
@@ -16,7 +16,17 @@ interface StartupConfig {
   version: 1; protocolVersion: "0.1"; workspaceId: string; workspaceRoot: string;
   userConfigDir: string; sessionDir: string; bridgeEndpoint: string;
 }
-interface HostSession { id: string; mode: Mode; runtime: AgentSession; events: EventEmitter; unsubscribe: () => void; setMode: (mode: Mode) => void; }
+interface HostSession {
+  id: string;
+  mode: Mode;
+  model: { provider: string; model: string };
+  runtime: AgentSession;
+  events: EventEmitter;
+  unsubscribe: () => void;
+  setMode: (mode: Mode) => void;
+  reloadModel: (provider: string, model: string) => Promise<{ provider: string; model: string }>;
+  setContext: (activeDocument?: string, activeKernelId?: string) => void;
+}
 
 function send(value: unknown): void { process.stdout.write(serializeJsonLine(value)); }
 function response(id: unknown, value: Record<string, unknown> = {}): void { send({ version: 1, id, ok: true, ...value }); }
@@ -130,8 +140,9 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
       settingsManager, modelRuntime, resourceLoaderOptions: { skills: false, systemPrompt: `You are Pigent. ${identityPrompt}` } as any });
     let runtime!: AgentSession;
     const eventEmitter = new EventEmitter(record.id, (event) => send({ version: 1, kind: "event", event }));
-    const context = { sessionId: record.id, workspaceId: config.workspaceId, mode: record.mode as Mode,
-      activeKernelId: record.active_kernel_id, bridgeEndpoint: config.bridgeEndpoint, bridgeToken,
+    const context: ToolSessionContext = { sessionId: record.id, workspaceId: config.workspaceId, mode: record.mode as Mode,
+      activeDocument: record.active_document?.path ?? record.active_document, activeKernelId: record.active_kernel_id,
+      bridgeEndpoint: config.bridgeEndpoint, bridgeToken,
       tasks: async (action: string, args_: Record<string, any>) => {
         const dynamic = runtime.dynamicTaskRuntime!;
         if (action === "get") return { ok: true, summary: "Tasks snapshot", data: { snapshot: publicTasks(dynamic.getSnapshot()) } };
@@ -164,8 +175,32 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
         agentProfile("review", false), agentProfile("implementation", true)] } });
     runtime = created.session;
     const unsubscribe = runtime.subscribe((event) => eventEmitter.translate(event));
-    const hostSession: HostSession = { id: record.id, mode: record.mode, runtime, events: eventEmitter, unsubscribe,
-      setMode: (mode: Mode) => { context.mode = mode; runtime.replaceToolDefinitions(createToolDefinitions(context)); } };
+    let hostSession!: HostSession;
+    hostSession = {
+      id: record.id,
+      mode: record.mode,
+      model: { provider: chosen.provider, model: chosen.model },
+      runtime,
+      events: eventEmitter,
+      unsubscribe,
+      setMode: (mode: Mode) => { context.mode = mode; runtime.replaceToolDefinitions(createToolDefinitions(context)); },
+      reloadModel: async (provider: string, modelId: string) => {
+        const next = selectedModel(config);
+        if (next.provider !== provider || next.model !== modelId)
+          throw new Error("model_configuration_required: selected model changed concurrently");
+        await modelRuntime.refresh({ allowNetwork: false });
+        const selected = modelRuntime.getModel(next.provider, next.model);
+        if (!selected) throw new Error(`model_configuration_required: unknown ${next.provider}/${next.model}`);
+        runtime.setModel(selected);
+        hostSession.model = { provider: next.provider, model: next.model };
+        return hostSession.model;
+      },
+      setContext: (activeDocument?: string, activeKernelId?: string) => {
+        context.activeDocument = activeDocument || undefined;
+        context.activeKernelId = activeKernelId || undefined;
+        runtime.replaceToolDefinitions(createToolDefinitions(context));
+      },
+    };
     sessions.set(record.id, hostSession);
     return hostSession;
   };
@@ -177,14 +212,19 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
         case "handshake": response(id, { protocol_version: PROTOCOL_VERSION, runtime_version: VERSION,
           tool_protocol_version: PROTOCOL_VERSION, tools: TOOL_NAMES, modes: CATALOGS,
           action_filters: ACTION_FILTERS, event_types: EVENT_TYPES.length }); return;
-        case "create_session": await createSession(command.session); response(id, { session_id: command.session.id }); return;
+        case "create_session": { const item = await createSession(command.session); response(id, { session_id: command.session.id, model: item.model }); return; }
         case "delete_session": { const item = sessions.get(command.session_id); item?.unsubscribe(); item?.runtime.dispose(); sessions.delete(command.session_id); response(id); return; }
         case "prompt": case "follow_up": { const item = sessions.get(command.session_id); if (!item) throw new Error("session not found");
           response(id, { accepted: true }); void item.runtime.prompt(String(command.text ?? ""), command.command === "follow_up" ? { streamingBehavior: "followUp" } : {}).catch((error) => item.events.emit("error", { code: "internal_error", message: String(error) })); return; }
         case "abort": { const item = sessions.get(command.session_id); if (!item) throw new Error("session not found"); await item.runtime.abort(); item.events.emit("aborted"); response(id); return; }
         case "mode_change": { if (!["ask", "plan", "auto"].includes(command.mode) || command.mode === "pilot") throw new Error("invalid mode");
           const old = sessions.get(command.session_id); if (!old) throw new Error("session not found"); old.mode = command.mode; old.setMode(command.mode as Mode); old.events.emit("mode.changed", { mode: command.mode, tools: CATALOGS[command.mode as Mode], actions: ACTION_FILTERS }); response(id); return; }
-        case "reconnect": { const item = sessions.get(command.session_id); if (!item) throw new Error("session not found"); item.events.emit("reconnect.cursor", { mode: item.mode, tasks: publicTasks(item.runtime.dynamicTaskRuntime?.getSnapshot()) }); response(id); return; }
+        case "model_change": { const item = sessions.get(command.session_id); if (!item) throw new Error("session not found");
+          const model = await item.reloadModel(String(command.provider ?? ""), String(command.model ?? "")); response(id, { model }); return; }
+        case "context_change": { const item = sessions.get(command.session_id); if (!item) throw new Error("session not found");
+          item.setContext(typeof command.active_document === "string" ? command.active_document : undefined,
+            typeof command.active_kernel_id === "string" ? command.active_kernel_id : undefined); response(id); return; }
+        case "reconnect": { const item = sessions.get(command.session_id); if (!item) throw new Error("session not found"); item.events.emit("reconnect.cursor", { mode: item.mode, model: item.model, tasks: publicTasks(item.runtime.dynamicTaskRuntime?.getSnapshot()) }); response(id); return; }
         case "shutdown": shuttingDown = true; for (const item of sessions.values()) { item.unsubscribe(); item.runtime.dispose(); } response(id); setImmediate(() => process.exit(0)); return;
         default: failure(id, "invalid_request", "unknown command");
       }
@@ -201,7 +241,7 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
   process.stdin.resume();
   send({ version: 1, kind: "host_event", event: { version: 1, type: "pigent.ready", timestamp: new Date().toISOString(),
     payload: { protocol_version: PROTOCOL_VERSION, runtime_version: VERSION, tool_protocol_version: PROTOCOL_VERSION,
-      tools: TOOL_NAMES, capabilities: ["jsonl", "prompt", "follow_up", "abort", "mode_change", "reconnect", "shutdown"] } } });
+      tools: TOOL_NAMES, capabilities: ["jsonl", "prompt", "follow_up", "abort", "mode_change", "model_change", "context_change", "reconnect", "shutdown"] } } });
   if (shuttingDown) process.exit(0);
 }
 

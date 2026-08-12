@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { PigentWorkspacePanel } from '../pigent/PigentWorkspacePanel'
 import { usePigent } from '../pigent/store'
+import { useRuntime } from '../runtime/RuntimeProvider'
 import { ShellPanel } from '../shell/ShellPanel'
 import { useShell } from '../shell/store'
 import { demoNotebookPath } from './demo'
@@ -25,8 +26,11 @@ function WorkspaceShell() {
     <button type="button" className="ws-tab-add" title="新建文件" onClick={() => actions.showPrompt('新建文件', '文件名', 'untitled.py', (name) => void actions.newFile(state.cwd, name))}><IconPlus size={15} /></button><div className="ws-tabbar-spacer" />
     <button type="button" className={`ws-pigent-toggle${pigent.state.open ? ' is-active' : ''}`} onClick={() => pigent.actions.setOpen(!pigent.state.open)} aria-pressed={pigent.state.open}><IconPigent size={14} /><span>Pigent</span></button>
     <button type="button" className={`ws-terminal-toggle${state.bottomOpen ? ' ws-terminal-toggle-active' : ''}`} title={state.bottomOpen ? '收起 Shell' : '展开 Shell'} onClick={() => actions.setBottomOpen(!state.bottomOpen)}><IconTerminal size={14} /><span>Shell</span></button>
-  </div><div className="ws-docs">{state.mode === 'connecting' ? <div className="ws-empty-state"><IconSpinner size={18} /><p>正在连接 Runtime API…</p></div> : activeDoc === null ? <div className="ws-empty-state"><p>从左侧文件树打开文档，或双击 Notebook 开始。</p><p className="ws-empty-hint">{state.mode === 'demo' ? '演示模式：展示的是内置示例数据' : `工作区：${state.workspace?.name ?? ''}`}</p></div> : activeDoc.kind === 'notebook' ? <NotebookView key={activeDoc.path} path={activeDoc.path} /> : activeDoc.kind === 'image' ? <ImageView key={activeDoc.path} path={activeDoc.path} /> : <TextView key={activeDoc.path} path={activeDoc.path} />}</div>
+  </div><div className="ws-docs">{state.mode === 'connecting' ? <div className="ws-empty-state"><IconSpinner size={18} /><p>正在连接 Runtime API…</p></div> : state.mode === 'error' ? <div className="ws-empty-state"><p>Runtime 连接失败</p><p className="ws-empty-hint">{state.lastError ?? '请检查节点、Workspace、代理和认证配置。'}</p><button type="button" className="ws-btn" onClick={() => void actions.reconnect()}>重新连接</button></div> : activeDoc === null ? <div className="ws-empty-state"><p>从左侧文件树打开文档，或双击 Notebook 开始。</p><p className="ws-empty-hint">{state.mode === 'demo' ? '演示模式：展示的是内置示例数据' : `工作区：${state.workspace?.name ?? ''}`}</p></div> : activeDoc.kind === 'notebook' ? <NotebookView key={activeDoc.path} path={activeDoc.path} /> : activeDoc.kind === 'image' ? <ImageView key={activeDoc.path} path={activeDoc.path} /> : <TextView key={activeDoc.path} path={activeDoc.path} />}</div>
     {state.bottomOpen && <div className="ws-bottom" style={shell.state.maximized ? undefined : { height: shell.state.panelHeight }}><ShellPanel onClose={() => actions.setBottomOpen(false)} /></div>}
   </div>{pigent.state.open && <PigentWorkspacePanel onClose={() => pigent.actions.setOpen(false)} />}</div><StatusBar /><DialogHost />{state.toast && <div className="ws-toast">{state.toast}</div>}</div>
 }
-export function WorkspaceApp() { return <WorkspaceProvider><WorkspaceShell /></WorkspaceProvider> }
+export function WorkspaceApp() {
+  const { target } = useRuntime()
+  return <WorkspaceProvider apiBase={target.apiBase} runtimeKey={target.key} allowDemo={target.allowDemo} expectedNodeId={target.expectedNodeId} expectedWorkspaceId={target.expectedWorkspaceId}><WorkspaceShell /></WorkspaceProvider>
+}

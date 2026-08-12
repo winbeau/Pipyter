@@ -9,7 +9,7 @@ from typing import Any
 
 
 def config_dir() -> Path:
-    override = os.environ.get("PIPYTER_CONFIG_DIR")
+    override = os.environ.get("PIPYTER_CONFIG_HOME") or os.environ.get("PIPYTER_CONFIG_DIR")
     if override:
         return Path(override).expanduser().resolve()
     xdg = os.environ.get("XDG_CONFIG_HOME")

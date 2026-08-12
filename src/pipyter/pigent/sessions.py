@@ -39,6 +39,17 @@ class ModeChange(BaseModel):
     mode: str
 
 
+class ModelChange(BaseModel):
+    provider: str
+    model: str
+    revision: str | None = None
+
+
+class ContextChange(BaseModel):
+    active_document: str | None = None
+    active_kernel_id: str | None = None
+
+
 @dataclass(slots=True)
 class SessionState:
     id: str
@@ -56,6 +67,8 @@ class SessionState:
     subscribers: set[asyncio.Queue[dict[str, Any]]] = field(default_factory=set)
     host_attached: bool = False
     run_active: bool = False
+    active_document: str | None = None
+    active_kernel_id: str | None = None
 
 
 class PigentSessionService:
@@ -73,7 +86,7 @@ class PigentSessionService:
         manager.on_event = self.accept_host_event
 
     def summary(self, session: SessionState) -> dict[str, Any]:
-        return {
+        value = {
             "id": session.id,
             "account_id": "local",
             "project_id": self.project.project_id,
@@ -89,12 +102,16 @@ class PigentSessionService:
             "model": {"provider": session.model["provider"], "model": session.model["model"]},
             "tasks_snapshot": session.tasks,
         }
+        if session.active_kernel_id:
+            value["active_kernel_id"] = session.active_kernel_id
+        return value
 
     def _persist(self, session: SessionState) -> None:
         self.state_dir.mkdir(parents=True, exist_ok=True)
         payload = self.summary(session)
         payload["next_event_id"] = session.next_event_id
         payload["run_active"] = session.run_active
+        payload["active_document_path"] = session.active_document
         fd, temporary = tempfile.mkstemp(prefix=f".{session.id}.", dir=self.state_dir)
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
@@ -120,6 +137,8 @@ class PigentSessionService:
                     value["created_at"], value["last_activity_at"], value.get("tasks_snapshot"), [],
                     int(value.get("next_event_id", 1)), set(), False, False,
                 )
+                session.active_document = value.get("active_document_path")
+                session.active_kernel_id = value.get("active_kernel_id")
                 event_path = self.events_dir / f"{session.id}.jsonl"
                 if event_path.exists():
                     session.events = [json.loads(line) for line in event_path.read_text(encoding="utf-8").splitlines()[-1000:] if line]
@@ -133,8 +152,20 @@ class PigentSessionService:
         if session.host_attached and self.manager.status().get("status") == "running":
             return
         if session.id not in self.bridge.sessions:
-            self.bridge.register_session(session.id, mode=session.mode)
-        await self.manager.command("create_session", session={**self.summary(session), "tools": list(PIGENT_CATALOGS[session.mode])})
+            self.bridge.register_session(
+                session.id,
+                mode=session.mode,
+                active_document=session.active_document,
+                active_kernel_id=session.active_kernel_id,
+            )
+        attached = await self.manager.command("create_session", session={
+            **self.summary(session),
+            "active_document": session.active_document,
+            "tools": list(PIGENT_CATALOGS[session.mode]),
+        })
+        attached_model = attached.get("model")
+        if isinstance(attached_model, dict) and isinstance(attached_model.get("provider"), str) and isinstance(attached_model.get("model"), str):
+            session.model = {"provider": attached_model["provider"], "model": attached_model["model"], "baseUrl": None}
         session.host_attached = True
 
     async def create(self, body: SessionCreate) -> SessionState:
@@ -260,6 +291,73 @@ class PigentSessionService:
         self.bridge.update_session(session.id, mode=mode)
         self._persist(session)
 
+    async def change_model(self, session: SessionState, body: ModelChange) -> str:
+        if session.run_active:
+            raise HTTPException(status_code=409, detail={"code": "invalid_request", "message": "Cannot change model while a run is active"})
+        await self._ensure_attached(session)
+        original = self.config.read_settings()
+        try:
+            written, resolved = self.config.select_ui_model(body.provider, body.model, body.revision)
+        except PigentConfigError as error:
+            code = "model_configuration_required" if "model_configuration_required" in str(error) else "invalid_request"
+            raise HTTPException(status_code=409, detail={"code": code, "message": str(error)}) from error
+        try:
+            response = await self.manager.command(
+                "model_change",
+                session_id=session.id,
+                provider=body.provider,
+                model=body.model,
+            )
+        except Exception as error:
+            try:
+                self.config.write_settings(original.value, written.revision)
+            except PigentConfigError:
+                pass
+            raise HTTPException(status_code=409, detail={"code": "model_configuration_required", "message": str(error)}) from error
+        confirmed = response.get("model")
+        session.model = confirmed if isinstance(confirmed, dict) else resolved
+        self._persist(session)
+        await self.emit(session, "session.updated", {
+            "session": self.summary(session),
+            "run_active": session.run_active,
+            "settings_revision": written.revision,
+        })
+        return written.revision
+
+    async def change_context(self, session: SessionState, body: ContextChange) -> None:
+        active_document = None
+        if body.active_document:
+            try:
+                resolved = (self.workspace / body.active_document).resolve()
+                active_document = resolved.relative_to(self.workspace).as_posix()
+            except (OSError, ValueError) as error:
+                raise HTTPException(status_code=400, detail="active_document must stay inside the Workspace") from error
+        if body.active_kernel_id:
+            kernels = getattr(self.bridge, "kernels", None)
+            if kernels is not None and not any(item.id == body.active_kernel_id for item in kernels.list()):
+                raise HTTPException(status_code=409, detail={"code": "kernel_unavailable", "message": "Active kernel is unavailable"})
+        session.active_document = active_document
+        session.active_kernel_id = body.active_kernel_id
+        await self._ensure_attached(session)
+        self.bridge.update_session(
+            session.id,
+            active_document=active_document,
+            clear_active_document=active_document is None,
+            active_kernel_id=body.active_kernel_id,
+            clear_active_kernel=body.active_kernel_id is None,
+        )
+        await self.manager.command(
+            "context_change",
+            session_id=session.id,
+            active_document=active_document,
+            active_kernel_id=body.active_kernel_id,
+        )
+        self._persist(session)
+        await self.emit(session, "context.updated", {
+            "active_document": active_document,
+            "active_kernel_id": body.active_kernel_id,
+        })
+
     def replay(self, session: SessionState, after_event_id: int) -> list[dict[str, Any]]:
         return [event for event in session.events if event["event_id"] > after_event_id]
 
@@ -307,6 +405,18 @@ def create_public_router(service: PigentSessionService) -> APIRouter:
         await service.change_mode(session, body.mode)
         return service.summary(session)
 
+    @router.put("/sessions/{session_id}/model")
+    async def model(session_id: str, body: ModelChange) -> dict[str, Any]:
+        session = service.get(session_id)
+        revision = await service.change_model(session, body)
+        return {"session": service.summary(session), "revision": revision}
+
+    @router.put("/sessions/{session_id}/context")
+    async def context(session_id: str, body: ContextChange) -> dict[str, Any]:
+        session = service.get(session_id)
+        await service.change_context(session, body)
+        return service.summary(session)
+
     @router.get("/sessions/{session_id}/tasks")
     async def tasks(session_id: str) -> dict[str, Any]:
         session = service.get(session_id)
@@ -314,10 +424,11 @@ def create_public_router(service: PigentSessionService) -> APIRouter:
 
     @router.get("/capabilities")
     async def capabilities() -> dict[str, Any]:
+        model_state = service.config.ui_model_state()
         return {"protocol_version": "0.1", "tools": list(PIGENT_CATALOGS["auto"]),
                 "modes": {key: list(value) for key, value in PIGENT_CATALOGS.items()},
                 "action_filters": PIGENT_ACTION_FILTERS, "capabilities": list(PIGENT_CAPABILITIES),
-                "host": service.manager.status()}
+                **model_state, "host": service.manager.status()}
 
     @router.websocket("/sessions/{session_id}/stream")
     async def stream(websocket: WebSocket, session_id: str, after_event_id: int = Query(default=0, ge=0)) -> None:

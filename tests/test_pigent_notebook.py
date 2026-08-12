@@ -107,6 +107,18 @@ def test_stale_revision_concurrent_serialization_and_bridge_idempotent_insert(tm
     assert sum(cell.source == "once" for cell in nb.cells) == 1
 
 
+def test_bridge_injects_trusted_active_notebook_path(tmp_path):
+    path = tmp_path / "analysis.ipynb"
+    make_notebook(path, with_id=True)
+    bridge = PigentBridge(tmp_path, "w", FakeKernels())
+    bridge.register_session("s", mode="ask", active_document="analysis.ipynb")
+    context = PigentToolContext(tool_call_id="active-read", session_id="s", workspace_id="w", mode="ask")
+    result = run(bridge.dispatch("notebook", {"action": "read_cell", "cell_id": "cell-a"}, context))
+    assert result.ok
+    assert result.data["path"] == str(path)
+    assert result.data["cell_id"] == "cell-a"
+
+
 def test_run_cell_persists_outputs_and_detects_source_conflict(tmp_path):
     path = tmp_path / "analysis.ipynb"
     make_notebook(path, with_id=True)

@@ -7,6 +7,7 @@ def test_health(client, project):
     body = response.json()
     assert body["status"] == "ok"
     assert body["protocol_version"] == "0.1"
+    assert body["node_id"] == "local"
     assert body["workspace_id"] == project.workspace_id
 
 
@@ -18,6 +19,23 @@ def test_workspace_summary(client, project):
     assert body["root_name"] == project.root.name
     assert body["connection_status"] == "connected"
     assert body["open_documents"] == []
+
+
+def test_pigent_auth_endpoint_update_preserves_existing_secret(client):
+    store = client.app.state.pigent_config
+    store.initialize()
+    auth = store.read_auth()
+    first = client.put("/api/v1/pigent/auth/custom", json={
+        "type": "api_key", "baseUrl": "https://old.test", "key": "keep-me",
+        "revision": auth.revision,
+    })
+    second = client.put("/api/v1/pigent/auth/custom", json={
+        "type": "api_key", "baseUrl": "https://new.test", "revision": first.json()["revision"],
+    })
+    assert second.status_code == 200
+    stored = store.read_auth().value["custom"]
+    assert stored["key"] == "keep-me"
+    assert stored["baseUrl"] == "https://new.test"
 
 
 def test_pigent_config_is_sanitized_and_bridge_credential_is_not_public(client):

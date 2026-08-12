@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 
 from pipyter.pigent.config import PigentConfigStore
 from pipyter.pigent.manager import PigentManager
-from pipyter.pigent.sessions import MessageCreate, PigentSessionService, SessionCreate, SessionState, create_public_router
+from pipyter.pigent.sessions import ContextChange, MessageCreate, ModelChange, PigentSessionService, SessionCreate, SessionState, create_public_router
 
 
 @pytest.fixture()
@@ -38,7 +38,9 @@ def test_host_jsonl_handshake_mode_change_and_crash_recovery(tmp_path, built_hos
             assert handshake["protocol_version"] == "0.1"
             assert len(handshake["tools"]) == 10
             session = {"id": "pigent_test", "mode": "ask", "execution_identity": {}, "tools": []}
-            assert (await client.command("create_session", session=session))["session_id"] == "pigent_test"
+            created = await client.command("create_session", session=session)
+            assert created["session_id"] == "pigent_test"
+            assert created["model"] == {"provider": "faux", "model": "deterministic"}
             await client.command("mode_change", session_id="pigent_test", mode="auto")
             assert manager.process is not None
             manager.process.kill()
@@ -49,6 +51,31 @@ def test_host_jsonl_handshake_mode_change_and_crash_recovery(tmp_path, built_hos
             # The supervisor did not replay create_session/mode_change into the new host.
             with pytest.raises(Exception, match="session not found"):
                 await replacement.command("mode_change", session_id="pigent_test", mode="ask")
+        finally:
+            await manager.shutdown()
+    asyncio.run(scenario())
+
+
+def test_host_model_change_reloads_authoritative_settings(tmp_path, built_host):
+    async def scenario():
+        config = PigentConfigStore(tmp_path / "config")
+        config.write_settings({"version": 1, "defaultProvider": "deepseek", "defaultModel": "deepseek-v4-flash"})
+        config.write_auth({"deepseek": {"type": "api_key", "baseUrl": "https://deepseek.test", "key": "configured"}})
+        manager = PigentManager(tmp_path, "workspace-1", user_config_dir=config.directory,
+                                bridge_endpoint="http://127.0.0.1:9/internal/pigent/v1", host_entry=built_host)
+        try:
+            client = await manager.ensure_started()
+            created = await client.command("create_session", session={
+                "id": "pigent_model_change", "mode": "ask", "execution_identity": {}, "tools": [],
+            })
+            assert created["model"] == {"provider": "deepseek", "model": "deepseek-v4-flash"}
+            current = config.read_settings()
+            config.select_ui_model("deepseek", "deepseek-v4-pro", current.revision)
+            changed = await client.command(
+                "model_change", session_id="pigent_model_change",
+                provider="deepseek", model="deepseek-v4-pro",
+            )
+            assert changed["model"] == {"provider": "deepseek", "model": "deepseek-v4-pro"}
         finally:
             await manager.shutdown()
     asyncio.run(scenario())
@@ -149,6 +176,73 @@ def test_mode_change_emits_once_and_lifecycle_state_is_authoritative(tmp_path):
     assert session.events[-1]["type"] == "session.updated"
 
 
+def test_model_and_context_changes_update_authoritative_session_state(tmp_path):
+    class RecordingManager:
+        on_event = None
+
+        def __init__(self):
+            self.commands = []
+
+        def status(self):
+            return {"status": "running"}
+
+        async def command(self, command, **payload):
+            self.commands.append((command, payload))
+            if command == "model_change":
+                return {"model": {"provider": payload["provider"], "model": payload["model"]}}
+            return {"ok": True}
+
+    class RecordingBridge:
+        def __init__(self):
+            self.sessions = {"pigent_model": SimpleNamespace(mode="ask", active_document=None, active_kernel_id=None)}
+            self.kernels = SimpleNamespace(list=lambda: [SimpleNamespace(id="kernel-1")])
+
+        def update_session(self, session_id, *, mode=None, active_document=None, clear_active_document=False,
+                           active_kernel_id=None, clear_active_kernel=False):
+            item = self.sessions[session_id]
+            if mode is not None:
+                item.mode = mode
+            if clear_active_document or active_document is not None:
+                item.active_document = active_document
+            if clear_active_kernel or active_kernel_id is not None:
+                item.active_kernel_id = active_kernel_id
+
+    config = PigentConfigStore(tmp_path / "config")
+    config.write_settings({"version": 1, "defaultProvider": "deepseek", "defaultModel": "deepseek-v4-flash"})
+    config.write_auth({"deepseek": {"type": "api_key", "baseUrl": "https://deepseek.test", "key": "configured"}})
+    manager, bridge = RecordingManager(), RecordingBridge()
+    service = PigentSessionService(tmp_path, SimpleNamespace(project_id="p", workspace_id="w"), bridge,
+                                   config, manager)  # type: ignore[arg-type]
+    session = SessionState("pigent_model", "ask", "automatic", {"provider": "deepseek", "model": "deepseek-v4-flash"},
+                           {"username": "u", "uid": 1, "home": str(tmp_path), "workspace": str(tmp_path)},
+                           host_attached=True)
+    service.sessions[session.id] = session
+
+    revision = config.read_settings().revision
+    changed_revision = asyncio.run(service.change_model(session, ModelChange(
+        provider="deepseek", model="deepseek-v4-pro", revision=revision,
+    )))
+    assert changed_revision != revision
+    assert session.model == {"provider": "deepseek", "model": "deepseek-v4-pro"}
+    assert config.read_settings().value["defaultModel"] == "deepseek-v4-pro"
+    assert session.events[-1]["type"] == "session.updated"
+    assert session.events[-1]["payload"]["settings_revision"] == changed_revision
+
+    asyncio.run(service.change_context(session, ContextChange(
+        active_document="analysis.ipynb", active_kernel_id="kernel-1",
+    )))
+    assert session.active_document == "analysis.ipynb"
+    assert session.active_kernel_id == "kernel-1"
+    assert bridge.sessions[session.id].active_document == "analysis.ipynb"
+    assert bridge.sessions[session.id].active_kernel_id == "kernel-1"
+    assert manager.commands[-1] == ("context_change", {
+        "session_id": session.id,
+        "active_document": "analysis.ipynb",
+        "active_kernel_id": "kernel-1",
+    })
+    assert session.events[-1]["type"] == "context.updated"
+
+
 def test_execution_identity_is_injected_into_host_session(tmp_path):
     class RecordingManager:
         on_event = None
@@ -167,7 +261,7 @@ def test_execution_identity_is_injected_into_host_session(tmp_path):
         def __init__(self):
             self.sessions = {}
 
-        def register_session(self, session_id, *, mode):
+        def register_session(self, session_id, *, mode, active_document=None, active_kernel_id=None):
             self.sessions[session_id] = mode
 
     config = PigentConfigStore(tmp_path / "config")
@@ -240,7 +334,11 @@ def test_raw_host_ready_malformed_jsonl_commands_and_monotonic_events(tmp_path, 
         identity = {"username": "runtime-user", "uid": 123, "home": "/home/runtime-user", "workspace": str(tmp_path)}
         await send({"version": 1, "id": "c", "command": "create_session",
                     "session": {"id": "pigent_raw", "mode": "ask", "execution_identity": identity}})
-        assert (await response_for("c"))[0]["ok"] is True
+        created = (await response_for("c"))[0]
+        assert created["ok"] is True and created["model"] == {"provider": "faux", "model": "deterministic"}
+        await send({"version": 1, "id": "x", "command": "context_change", "session_id": "pigent_raw",
+                    "active_document": "analysis.ipynb", "active_kernel_id": "kernel-1"})
+        assert (await response_for("x"))[0]["ok"] is True
         await send({"version": 1, "id": "m", "command": "mode_change", "session_id": "pigent_raw", "mode": "auto"})
         mode_response, mode_events = await response_for("m")
         assert mode_response["ok"] is True
@@ -278,6 +376,31 @@ def test_host_event_payload_redacts_secret_fields(built_host):
         capture_output=True, text=True, check=True,
     )
     assert json.loads(output.stdout) == {"password": "[redacted]", "nested": {"api_key": "[redacted]"}, "safe": "visible"}
+
+
+def test_host_stream_deltas_share_one_message_identifier(built_host):
+    script = """
+      import { EventEmitter } from './packages/pigent/host/dist/events.js';
+      const events = [];
+      const emitter = new EventEmitter('s', event => events.push(event));
+      const message = text => ({role:'assistant', content:[{type:'text', text}], stopReason:'pending', timestamp:1});
+      emitter.translate({type:'message_start', message:message('')});
+      emitter.translate({type:'message_update', message:message('Hello')});
+      emitter.translate({type:'message_update', message:message('Hello!')});
+      emitter.translate({type:'message_end', message:{...message('Hello!'), stopReason:'stop'}});
+      emitter.translate({type:'message_start', message:message('')});
+      emitter.translate({type:'message_update', message:message('Again')});
+      console.log(JSON.stringify(events));
+    """
+    output = subprocess.run(
+        ["node", "--input-type=module", "-e", script], cwd=Path(__file__).parents[1],
+        capture_output=True, text=True, check=True,
+    )
+    events = json.loads(output.stdout)
+    assert [event["payload"]["text"] for event in events] == ["Hello", "!", "Again"]
+    assert all(event["payload"]["delta"] is True for event in events)
+    assert events[0]["payload"]["message_id"] == events[1]["payload"]["message_id"]
+    assert events[2]["payload"]["message_id"] != events[1]["payload"]["message_id"]
 
 
 def test_host_tasks_and_delegate_adapters(built_host):

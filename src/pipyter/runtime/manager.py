@@ -7,8 +7,10 @@ import sys
 import time
 from pathlib import Path
 
+from ..exceptions import RuntimeStateError
 from ..workspace.project import ProjectBinding
 from ..pigent.resources import diagnostics as pigent_diagnostics
+from ..server.security import is_loopback_host
 from .jupyter import build_jupyter_command, new_runtime_token, token_fingerprint
 from .state import RuntimeState, pid_alive
 
@@ -30,6 +32,8 @@ class RuntimeManager:
         jupyter_port: int = 8888,
         start_jupyter: bool = True,
     ) -> RuntimeState:
+        if not is_loopback_host(api_host):
+            raise RuntimeStateError("RuntimeManager is local-only; use 'pipyter node serve' for remote binds")
         current = self.state()
         if current and current.running:
             return current
@@ -39,6 +43,7 @@ class RuntimeManager:
         api_env = os.environ.copy()
         api_env["PIPYTER_WORKSPACE_ROOT"] = str(self.project.root)
         api_env["PIPYTER_WORKSPACE_ID"] = self.project.workspace_id
+        api_env["PIPYTER_PIGENT_BRIDGE_ENDPOINT"] = f"http://127.0.0.1:{api_port}/internal/pigent/v1"
         api_cmd = [
             sys.executable,
             "-m",
@@ -65,7 +70,7 @@ class RuntimeManager:
             api_pid=api.pid,
             jupyter_pid=jupyter.pid if jupyter else None,
             api_url=f"http://{api_host}:{api_port}",
-            jupyter_url=f"http://127.0.0.1:{jupyter_port}/lab",
+            jupyter_url=f"http://127.0.0.1:{jupyter_port}/jupyter/lab",
             token_fingerprint=token_fingerprint(token),
         )
         state.mark_started()

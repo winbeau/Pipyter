@@ -15,7 +15,8 @@ import { demoNotebookCells } from './demo'
 import { defaultKeymap, loadKeymap, persistKeymap, type KeyActionId, type KeyCombo, type Keymap } from './keymap'
 import type { CellModel, DialogState, DocKind, FileEntry, LeftTab, Mode, OpenDoc, WorkspaceState } from './types'
 
-const STORAGE_KEY = 'pipyter.workspace.v2'
+const STORAGE_PREFIX = 'pipyter.workspace.v2'
+const storageKey = (runtimeKey: string) => `${STORAGE_PREFIX}:${runtimeKey}`
 
 const initialState: WorkspaceState = {
   mode: 'connecting',
@@ -233,7 +234,7 @@ export function newCellId(): string {
 }
 
 function errorMessage(error: unknown): string {
-  if (error instanceof ApiUnavailableError) return 'Runtime API 不可用，已切换演示模式'
+  if (error instanceof ApiUnavailableError) return error.message
   if (error instanceof Error) return error.message
   return String(error)
 }
@@ -290,9 +291,9 @@ type WorkspaceContextValue = { state: WorkspaceState; actions: WorkspaceActions 
 
 const WorkspaceContext = createContext<WorkspaceContextValue | null>(null)
 
-function loadPersisted(): Partial<WorkspaceState> {
+function loadPersisted(runtimeKey: string): Partial<WorkspaceState> {
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY)
+    const raw = window.localStorage.getItem(storageKey(runtimeKey))
     if (!raw) return {}
     const parsed = JSON.parse(raw) as Partial<WorkspaceState>
     return {
@@ -310,11 +311,25 @@ function loadPersisted(): Partial<WorkspaceState> {
   }
 }
 
-export function WorkspaceProvider({ children }: { children: ReactNode }) {
-  const [state, dispatch] = useReducer(reducer, initialState, () => reducer(initialState, { type: 'restore', state: loadPersisted() }))
+export function WorkspaceProvider({
+  children,
+  apiBase = '',
+  runtimeKey = 'local:current',
+  allowDemo = true,
+  expectedNodeId,
+  expectedWorkspaceId,
+}: {
+  children: ReactNode
+  apiBase?: string
+  runtimeKey?: string
+  allowDemo?: boolean
+  expectedNodeId?: string
+  expectedWorkspaceId?: string
+}) {
+  const [state, dispatch] = useReducer(reducer, initialState, () => reducer(initialState, { type: 'restore', state: loadPersisted(runtimeKey) }))
   const stateRef = useRef(state)
   stateRef.current = state
-  const apiRef = useRef<WorkspaceApiClient>(createApiClient('demo'))
+  const apiRef = useRef<WorkspaceApiClient>(createApiClient('demo', apiBase))
   const [apiMode, setApiMode] = useState<'api' | 'demo'>('demo')
 
   useEffect(() => {
@@ -329,7 +344,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         notebookDoc: state.notebookDoc,
         texts: state.texts,
       }
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload))
+      window.localStorage.setItem(storageKey(runtimeKey), JSON.stringify(payload))
     }
     const timer = window.setTimeout(persist, 180)
     window.addEventListener('pagehide', persist)
@@ -337,7 +352,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       window.clearTimeout(timer)
       window.removeEventListener('pagehide', persist)
     }
-  }, [state.openDocs, state.active, state.leftOpen, state.bottomOpen, state.cwd, state.notebooks, state.notebookDoc, state.texts])
+  }, [runtimeKey, state.openDocs, state.active, state.leftOpen, state.bottomOpen, state.cwd, state.notebooks, state.notebookDoc, state.texts])
 
   useEffect(() => {
     if (!state.toast) return
@@ -347,7 +362,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   // Re-list the directory whenever the browsing path changes.
   useEffect(() => {
-    if (state.mode !== 'connecting') {
+    if (state.mode === 'api' || state.mode === 'demo') {
       void refreshTree()
     }
     // refreshTree reads the latest cwd through stateRef; cwd changes drive this effect.
@@ -404,29 +419,28 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   const reconnect = useCallback(async () => {
     dispatch({ type: 'setMode', mode: 'connecting' })
-    const mode = await detectMode()
-    apiRef.current = createApiClient(mode)
-    setApiMode(mode)
-    dispatch({ type: 'setMode', mode })
-    if (mode === 'api') {
-      try {
-        const workspace = await apiRef.current.workspace()
-        dispatch({ type: 'setWorkspace', workspace })
-        notify('已连接 Runtime API')
-      } catch (error) {
-        dispatch({ type: 'setWorkspace', workspace: null })
-        notify(`API 连接失败: ${errorMessage(error)}`)
-      }
-    } else {
+    dispatch({ type: 'setLastError', error: null })
+    try {
+      const mode = await detectMode(apiBase, { allowDemo, expectedNodeId, expectedWorkspaceId })
+      apiRef.current = createApiClient(mode, apiBase)
+      setApiMode(mode)
+      dispatch({ type: 'setMode', mode })
       const workspace = await apiRef.current.workspace()
       dispatch({ type: 'setWorkspace', workspace })
-      notify('Runtime API 不可用 — 本地演示模式')
+      notify(mode === 'api' ? '已连接 Runtime API' : 'Runtime API 不可用 — 本地演示模式')
+      await refreshTree()
+      await refreshKernels()
+      await refreshKernelSpecs()
+      await refreshRunning()
+    } catch (error) {
+      const message = errorMessage(error)
+      dispatch({ type: 'setMode', mode: 'error' })
+      dispatch({ type: 'setWorkspace', workspace: null })
+      dispatch({ type: 'setEntries', entries: null })
+      dispatch({ type: 'setLastError', error: message })
+      notify(`Runtime 连接失败: ${message}`)
     }
-    await refreshTree()
-    await refreshKernels()
-    await refreshKernelSpecs()
-    await refreshRunning()
-  }, [notify, refreshTree, refreshKernels, refreshKernelSpecs])
+  }, [allowDemo, apiBase, expectedNodeId, expectedWorkspaceId, notify, refreshTree, refreshKernels, refreshKernelSpecs])
 
   useEffect(() => {
     void reconnect()

@@ -118,7 +118,9 @@ export class AgentSession {
 			: "";
 		const append = loader.getAppendSystemPrompt();
 		const toolText = tools.length ? `\n\nAvailable tools: ${tools.map((tool) => tool.name).join(", ")}` : "";
-		return `${custom}${toolText}${contextText}${append.length ? `\n\n${append.join("\n\n")}` : ""}`;
+		const guidance = tools.map((tool) => tool.promptSnippet).filter((value): value is string => Boolean(value));
+		const guidanceText = guidance.length ? `\n\nTool usage:\n${guidance.map((value) => `- ${value}`).join("\n")}` : "";
+		return `${custom}${toolText}${guidanceText}${contextText}${append.length ? `\n\n${append.join("\n\n")}` : ""}`;
 	}
 
 	private async handleAgentEvent(event: AgentEvent): Promise<void> {

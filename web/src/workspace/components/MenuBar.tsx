@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useWorkspace } from '../store'
+import { RuntimeSelector } from '../../runtime/RuntimeSelector'
 import { IconChevronDown } from '../icons'
 
 type MenuEntry = { label?: string; action?: () => void; disabled?: boolean; divider?: boolean }
@@ -109,6 +110,7 @@ function MenuBar() {
         </div>
       ))}
       <div className="ws-menubar-spacer" />
+      <RuntimeSelector />
       <div className="ws-menubar-meta">
         <button
           type="button"

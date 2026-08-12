@@ -10,11 +10,13 @@ PROTOCOL_VERSION = "0.1"
 class HealthResponse(BaseModel):
     status: Literal["ok"] = "ok"
     protocol_version: str = PROTOCOL_VERSION
+    node_id: str = "local"
     workspace_id: str
 
 
 class WorkspaceSummary(BaseModel):
     protocol_version: str = PROTOCOL_VERSION
+    node_id: str = "local"
     workspace_id: str
     project_id: str
     name: str

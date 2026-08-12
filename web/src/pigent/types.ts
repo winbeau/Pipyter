@@ -1,3 +1,5 @@
+import type { PigentModelChoice, PigentModelSelection } from './models'
+
 export type {
   ArtifactRef,
   ExecutionIdentity,
@@ -24,6 +26,9 @@ export type PigentCapabilities = {
   protocol_version: string
   tools: string[]
   modes: Record<'ask' | 'plan' | 'auto', string[]>
+  model?: PigentModelSelection
+  models?: PigentModelChoice[]
+  settings_revision?: string
   host?: Record<string, unknown>
 }
 

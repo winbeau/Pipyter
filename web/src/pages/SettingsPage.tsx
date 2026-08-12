@@ -1,6 +1,7 @@
 import { useState, type CSSProperties } from 'react'
 import { codeThemeOptions, setAppearance, useAppearance } from '../appearance'
 import { SettingsDesign } from '../design/pages/SettingsDesign'
+import { ProviderSettings } from '../settings/ProviderSettings'
 
 type Section = 'general' | 'workspace' | 'kernels' | 'figures' | 'agent' | 'providers' | 'permissions' | 'appearance' | 'account'
 
@@ -62,6 +63,7 @@ export function SettingsPage() {
       density={appearance.density}
       onCodeThemeChange={(codeTheme) => setAppearance({ codeTheme })}
       onDensityChange={(density) => setAppearance({ density })}
+      providersContent={<ProviderSettings />}
       navGeneralStyle={navStyle(section === 'general')}
       navWorkspaceStyle={navStyle(section === 'workspace')}
       navKernelsStyle={navStyle(section === 'kernels')}

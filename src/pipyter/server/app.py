@@ -42,6 +42,7 @@ from ..protocol.models import (
 )
 from ..protocol.pigent import TerminalSession
 from ..terminal import TerminalPlatformUnsupported, TerminalRuntime, TerminalSessionManager
+from .security import RuntimeAuthMiddleware
 from ..workspace.files import (
     create_directory,
     delete_path,
@@ -62,9 +63,24 @@ def _project_for_root(root: Path) -> ProjectBinding:
         return ProjectBinding("local", "local-project", "local-workspace", root.name or "workspace", root)
 
 
-def create_app(root: str | os.PathLike[str] | None = None) -> FastAPI:
+def create_app(
+    root: str | os.PathLike[str] | None = None,
+    *,
+    runtime_token: str | None = None,
+    allowed_origins: list[str] | tuple[str, ...] | None = None,
+    bridge_endpoint: str | None = None,
+    config_root: str | os.PathLike[str] | None = None,
+    node_id: str | None = None,
+) -> FastAPI:
     workspace_root = Path(root or os.environ.get("PIPYTER_WORKSPACE_ROOT", ".")).expanduser().resolve()
     project = _project_for_root(workspace_root)
+    runtime_token = runtime_token if runtime_token is not None else os.environ.get("PIPYTER_RUNTIME_TOKEN")
+    node_id = node_id or os.environ.get("PIPYTER_NODE_ID") or "local"
+    origin_env = os.environ.get("PIPYTER_ALLOWED_ORIGINS", "")
+    explicit_origins = list(allowed_origins) if allowed_origins is not None else [
+        value.strip() for value in origin_env.split(",") if value.strip()
+    ]
+    cors_origins = explicit_origins or ["http://127.0.0.1:5173", "http://localhost:5173"]
     kernels = KernelRuntime(workspace_root)
     terminal = TerminalRuntime(workspace_root)
     terminal_sessions = TerminalSessionManager(workspace_root)
@@ -88,6 +104,8 @@ def create_app(root: str | os.PathLike[str] | None = None) -> FastAPI:
     )
     app.state.workspace_root = workspace_root
     app.state.project = project
+    app.state.node_id = node_id
+    app.state.runtime_auth_enabled = bool(runtime_token)
     app.state.kernels = kernels
     app.state.terminal = terminal
     app.state.terminal_sessions = terminal_sessions
@@ -96,12 +114,16 @@ def create_app(root: str | os.PathLike[str] | None = None) -> FastAPI:
     app.state.pigent_bridge = bridge
     app.state.pigent_bridge_credential = bridge_credential
     app.include_router(create_internal_router(bridge, bridge_credential))
-    pigent_config = PigentConfigStore()
+    pigent_config = PigentConfigStore(config_root=config_root)
     pigent_manager = PigentManager(
         workspace_root,
         project.workspace_id,
         user_config_dir=pigent_config.directory,
-        bridge_endpoint=os.environ.get("PIPYTER_PIGENT_BRIDGE_ENDPOINT", "http://127.0.0.1:8765/internal/pigent/v1"),
+        bridge_endpoint=(
+            bridge_endpoint
+            or os.environ.get("PIPYTER_PIGENT_BRIDGE_ENDPOINT")
+            or "http://127.0.0.1:8765/internal/pigent/v1"
+        ),
         bridge_token=bridge_credential,
     )
     manager_holder["manager"] = pigent_manager
@@ -116,16 +138,21 @@ def create_app(root: str | os.PathLike[str] | None = None) -> FastAPI:
         return JSONResponse(status_code=409, content={"detail": {"code": "invalid_request", "message": str(error)}})
 
     app.add_middleware(
+        RuntimeAuthMiddleware,
+        token=runtime_token,
+        allowed_origins=explicit_origins,
+    )
+    app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://127.0.0.1:5173", "http://localhost:5173"],
+        allow_origins=cors_origins,
         allow_credentials=True,
-        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["*"],
     )
 
     @app.get("/api/v1/health", response_model=HealthResponse)
     def health() -> HealthResponse:
-        return HealthResponse(workspace_id=project.workspace_id)
+        return HealthResponse(node_id=node_id, workspace_id=project.workspace_id)
 
     @app.get("/api/v1/pigent/config")
     def get_pigent_config() -> dict:
@@ -154,7 +181,16 @@ def create_app(root: str | os.PathLike[str] | None = None) -> FastAPI:
     def put_pigent_auth(provider_id: str, body: dict) -> dict:
         document = pigent_config.read_auth()
         value = dict(document.value)
-        entry = {key: body[key] for key in ("type", "baseUrl", "key", "accessToken", "refreshToken", "secretHeaders") if key in body}
+        current = value.get(provider_id)
+        entry = dict(current) if isinstance(current, dict) else {}
+        secret_fields = {"key", "accessToken", "refreshToken", "secretHeaders"}
+        for key in ("type", "baseUrl", "key", "accessToken", "refreshToken", "secretHeaders"):
+            if key not in body:
+                continue
+            candidate = body[key]
+            if key in secret_fields and (candidate is None or candidate == ""):
+                continue
+            entry[key] = candidate
         value[provider_id] = entry
         written = pigent_config.write_auth(value, body.get("revision", document.revision))
         return {"provider_id": provider_id, "configured": True, "revision": written.revision}
@@ -170,6 +206,7 @@ def create_app(root: str | os.PathLike[str] | None = None) -> FastAPI:
     def workspace() -> WorkspaceSummary:
         active_kernels = kernels.list()
         return WorkspaceSummary(
+            node_id=node_id,
             workspace_id=project.workspace_id,
             project_id=project.project_id,
             name=project.name,

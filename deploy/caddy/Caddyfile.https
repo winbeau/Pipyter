@@ -1,0 +1,22 @@
+https://{$PIPYTER_GATEWAY_ADDRESS}:8443 {
+    tls internal
+    root * /opt/pipyter/web
+
+    @runtime path /nodes/autodl/api/*
+    handle @runtime {
+        uri strip_prefix /nodes/autodl
+        reverse_proxy http://{$AUTODL_LAN_ADDRESS}:8765 {
+            header_up Authorization "Bearer {$PIPYTER_RUNTIME_TOKEN}"
+            flush_interval -1
+        }
+    }
+
+    @runtimeConfig path /runtime-config.js
+    header @runtimeConfig Cache-Control "no-store"
+
+    @assets path /assets/*
+    header @assets Cache-Control "public, max-age=31536000, immutable"
+
+    try_files {path} /index.html
+    file_server
+}

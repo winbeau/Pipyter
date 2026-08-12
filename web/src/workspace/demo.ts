@@ -4,6 +4,7 @@ import type { FileEntry, KernelOutput } from '../../../packages/protocol/src/ind
 
 export const demoWorkspace = {
   protocol_version: '0.1' as const,
+  node_id: 'demo',
   workspace_id: 'demo-workspace',
   project_id: 'demo-project',
   name: 'LingBot-VA',

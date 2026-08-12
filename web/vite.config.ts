@@ -8,7 +8,11 @@ export default defineConfig({
     port: 5173,
     proxy: {
       // Runtime API (pipyter serve / pipyter up) during development.
-      '/api': 'http://127.0.0.1:8765',
+      '/api': {
+        target: 'http://127.0.0.1:8765',
+        changeOrigin: true,
+        ws: true,
+      },
     },
   },
   preview: {
