@@ -64,7 +64,7 @@ def build_parser() -> argparse.ArgumentParser:
     lab = commands.add_parser("lab", help="Launch the Pipyter Workspace web UI for the current project")
     lab.add_argument("path", nargs="?", default=".")
     lab.add_argument("--host", default="127.0.0.1")
-    lab.add_argument("--port", type=int, default=8765)
+    lab.add_argument("--port", type=int, default=8895)
     lab.add_argument("--no-browser", action="store_true", help="Do not open a browser tab automatically")
     lab.add_argument("--verbose", action="store_true", help="Show per-request access logs")
 
@@ -201,7 +201,7 @@ def _doctor(args: argparse.Namespace) -> int:
     else:
         checks["workspace_writable"] = False
     checks["credentials_present"] = load_credentials() is not None
-    checks["api_port_8765_free"] = _port_free(8765)
+    checks["api_port_8895_free"] = _port_free(8895)
     pigent = pigent_diagnostics(verify_hashes=True)
     checks["pigent_payload_ok"] = bool(pigent["payload_ok"])
     checks["pigent_payload_error"] = pigent.get("payload_error") or ""
@@ -209,6 +209,10 @@ def _doctor(args: argparse.Namespace) -> int:
     checks["pigent_node_required"] = str(pigent["node"]["required"])
     checks["pigent_node_version"] = str(pigent["node"].get("version") or "")
     checks["pigent_node_finding"] = str(pigent["node"]["message"])
+    checks["pigent_uv_ok"] = bool(pigent["uv"]["ok"])
+    checks["pigent_uv_required"] = str(pigent["uv"]["required"])
+    checks["pigent_uv_version"] = str(pigent["uv"].get("version") or "")
+    checks["pigent_uv_finding"] = str(pigent["uv"]["message"])
     try:
         config = PigentConfigStore()
         checks["pigent_config_directory"] = str(config.directory)

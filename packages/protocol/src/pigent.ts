@@ -1,5 +1,5 @@
 /**
- * Pigent v0.1 frozen contracts (Python equivalents: src/pipyter/protocol/pigent.py).
+ * Pigent v0.2 contracts (Python equivalents: src/pipyter/protocol/pigent.py).
  * Authoritative JSON Schema lives in packages/protocol/schemas/pigent-*.schema.json;
  * the wheel force-includes those schemas.
  *
@@ -11,7 +11,7 @@
  *    workspace-only sandbox, denylist, or hidden restricted tier.
  */
 
-export const PIGENT_PROTOCOL_VERSION = '0.1' as const
+export const PIGENT_PROTOCOL_VERSION = '0.2' as const
 
 export const PIGENT_TOOL_NAMES = [
   'read',
@@ -53,6 +53,11 @@ export const PIGENT_ERROR_CODES = [
   'kernel_dead',
   'model_configuration_required',
   'service_unavailable',
+  'payload_missing', 'payload_stale', 'uv_missing', 'uv_incompatible',
+  'config_migration_conflict', 'config_migration_invalid_source',
+  'kernel_environment_not_found', 'kernel_environment_conflict', 'kernel_environment_busy',
+  'kernel_environment_stale', 'kernel_environment_provision_failed', 'kernel_environment_sync_failed',
+  'kernel_queue_cancelled', 'operation_not_cancellable', 'interaction_superseded',
 ] as const
 export type PigentErrorCode = (typeof PIGENT_ERROR_CODES)[number]
 
@@ -78,6 +83,7 @@ export const PIGENT_EVENT_TYPES = [
   'aborted',
   'settled',
   'reconnect.cursor',
+  'operation.started', 'operation.updated', 'operation.ended', 'kernel.environment.updated',
 ] as const
 export type PigentEventType = (typeof PIGENT_EVENT_TYPES)[number]
 
@@ -115,6 +121,7 @@ export const PIGENT_CAPABILITIES = [
   'tasks.write',
   'delegate.read',
   'delegate.write',
+  'kernel.environment.read', 'kernel.environment.manage',
 ] as const
 export type PigentCapability = (typeof PIGENT_CAPABILITIES)[number]
 
@@ -128,6 +135,7 @@ export const PIGENT_MODE_MATRIX: Readonly<Record<PigentCapability, Readonly<Reco
   'notebook.read': { ask: 'allow', plan: 'allow', auto: 'os' },
   'kernel.status': { ask: 'allow', plan: 'allow', auto: 'os' },
   'kernel.inspect': { ask: 'allow', plan: 'allow', auto: 'os' },
+  'kernel.environment.read': { ask: 'allow', plan: 'allow', auto: 'allow' },
   'tasks.write': { ask: 'deny', plan: 'allow', auto: 'allow' },
   'delegate.read': { ask: 'allow', plan: 'allow', auto: 'allow' },
   'filesystem.write': { ask: 'deny', plan: 'deny', auto: 'os' },
@@ -138,6 +146,7 @@ export const PIGENT_MODE_MATRIX: Readonly<Record<PigentCapability, Readonly<Reco
   network: { ask: 'deny', plan: 'deny', auto: 'os' },
   'system.execute': { ask: 'deny', plan: 'deny', auto: 'interactive' },
   'delegate.write': { ask: 'deny', plan: 'deny', auto: 'allow' },
+  'kernel.environment.manage': { ask: 'deny', plan: 'deny', auto: 'os' },
 }
 
 /**
@@ -162,9 +171,9 @@ export const PIGENT_ACTION_FILTERS: Readonly<
     auto: ['read_cell', 'update_cell', 'insert_cell', 'delete_cell', 'move_cell', 'run_cell', 'add_markdown', 'clear_output'],
   },
   kernel: {
-    ask: ['status'],
-    plan: ['status'],
-    auto: ['status', 'execute', 'interrupt', 'restart', 'shutdown'],
+    ask: ['status', 'list_environments', 'operation_status'],
+    plan: ['status', 'list_environments', 'operation_status'],
+    auto: ['status', 'execute', 'interrupt', 'restart', 'shutdown', 'list_environments', 'operation_status', 'create_temporary', 'create_maintained', 'sync_environment', 'start_environment', 'promote_environment', 'delete_environment'],
   },
   inspect: {
     ask: ['variables', 'variable', 'dataframe', 'figure', 'object'],
@@ -222,6 +231,61 @@ export interface PigentToolContext {
 // Session / tasks / terminal / artifact / interaction
 // ---------------------------------------------------------------------------
 
+export type OperationState = 'queued' | 'running' | 'waiting_for_user' | 'succeeded' | 'failed' | 'cancelled'
+export type OperationOutcome = 'success' | 'partial' | 'failed' | 'cancelled' | 'superseded'
+export type KernelEnvironmentKind = 'temporary' | 'maintained'
+export type KernelEnvironmentStatus = 'provisioning' | 'ready' | 'stale' | 'syncing' | 'error' | 'deleting' | 'missing'
+
+export interface OperationProgress {
+  phase: string
+  completed: number
+  total?: number | null
+  message?: string
+}
+
+export interface ToolReceipt {
+  outcome: OperationOutcome
+  summary: string
+  identifiers?: Record<string, string>
+  at: string
+}
+
+export interface OperationEnvelope {
+  operation_id: string
+  kind: string
+  state: OperationState
+  progress?: OperationProgress | null
+  resource: { type: 'kernel_environment'; id: string }
+  created_at: string
+  updated_at: string
+  session_id?: string | null
+  tool_call_id?: string | null
+  cancellable: boolean
+  receipt?: ToolReceipt | null
+  error?: PigentToolError | null
+}
+
+export interface KernelEnvironmentSummary {
+  id: string
+  kind: KernelEnvironmentKind
+  name?: string | null
+  display_name: string
+  status: KernelEnvironmentStatus
+  python_request: string
+  python_version?: string | null
+  interpreter?: string | null
+  packages?: string[]
+  source?: Record<string, unknown> | null
+  lock_revision?: string | null
+  revision: string
+  created_at: string
+  updated_at: string
+  last_used_at?: string | null
+  expires_at?: string | null
+  active_kernel_ids?: string[]
+  last_error?: PigentToolError | null
+}
+
 export interface ExecutionIdentity {
   username: string
   uid: number | string | null
@@ -252,7 +316,6 @@ export interface PigentSession {
   node_id: string
   mode: PigentMode
   approval_preference: 'automatic' | 'review_all'
-  execution_identity: ExecutionIdentity
   status: PigentSessionStatus
   title?: string
   created_at: string
@@ -301,7 +364,7 @@ export interface PigentInteraction {
 
 export interface PigentEvent {
   version: 1
-  event_id: number
+  event_id: number | null
   session_id: string
   type: PigentEventType
   timestamp: string

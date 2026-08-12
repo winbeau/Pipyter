@@ -2,6 +2,54 @@
 
 All notable changes to Pipyter are documented in this file.
 
+## [0.2.0] - 2026-08-12
+
+### Added
+
+- Added Pigent protocol v0.2 contracts across Python, TypeScript, JSON Schema,
+  golden fixtures, Host capability negotiation, operations, receipts,
+  interactions, artifacts, and correlated run/turn events while preserving the
+  exact ten-tool public catalog.
+- Added trusted-alias DeepSeek SSH migration with redacted preview, explicit
+  apply/rollback, revision and provider/credential fingerprint binding,
+  transaction recovery, private backups, and restrictive file permissions.
+- Added a unified asynchronous KernelRuntime queue and Pipyter-private uv
+  environments with temporary/maintained lifecycles, isolated kernelspecs,
+  cancellable process groups, environment mutation locks, cleanup, persistence,
+  and Runtime restart reconciliation.
+- Added the shared modern Pigent React experience for Dedicated and Workspace
+  views, including optimistic messages, Stop/Abort, Markdown, model selection,
+  ToolSurfaces, interactions, artifacts, searchable/paged session history, and
+  responsive mobile session/detail drawers.
+- Added deterministic Vitest and Playwright coverage for responsive layouts and
+  send, stop, interaction, artifact, session CRUD/search, and reconnect flows.
+- Added CI release gates for Python, Pigent/Protocol TypeScript, Web/Playwright,
+  Payload verification, engine independence, archive scanning, sdist rebuild,
+  rebuilt-wheel verification, and isolated `uv tool install` smoke checks.
+
+### Changed
+
+- Bumped the Pipyter, Pigent Host/workspace, Protocol, Payload manifest, and tool
+  protocol versions to 0.2.0/0.2 as appropriate.
+- `pipyter lab`, the bundled Runtime UI, Vite development proxy, and internal
+  Pigent bridge now use port 8895 by default.
+- Pigent session APIs now support idempotent client messages, real abort,
+  interaction decisions, rename/search/filter/delete, disk-backed history
+  pagination, operation APIs, and non-consuming reconnect cursor snapshots.
+- Payload validation now requires manifest schema 2, v0.2 Host/tool protocol
+  metadata, exact hashes, no external engine, and no test-only package trees.
+
+### Security
+
+- Public migration and provider errors no longer expose credentials, remote
+  endpoint paths, or local absolute paths; remote helpers are sent over stdin
+  and never written to the SSH host.
+- Kernel environment management runs as the current Runtime user, never writes
+  a global Jupyter kernelspec, and removes provider credentials from child
+  process environments.
+- Recorded the clean-room boundary for the ephemeral tool-ui design reference;
+  it is not a source, package, asset, build input, or Runtime dependency.
+
 ## [0.1.4] - 2026-08-11
 
 ### Added

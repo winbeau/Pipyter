@@ -97,7 +97,6 @@ class InspectionService:
     def __init__(self, kernels: Any, artifacts: ArtifactRegistry):
         self.kernels = kernels
         self.artifacts = artifacts
-        self._kernel_locks: dict[str, asyncio.Lock] = {}
 
     async def inspect(self, arguments: dict[str, Any], *, kernel_id: str | None):
         if not kernel_id:
@@ -146,10 +145,8 @@ class InspectionService:
         return success(f"Captured figure {name}", data={"figure_id": ref.id}, artifacts=[ref])
 
     async def _execute_json(self, kernel_id: str, code: str, timeout: float) -> Any:
-        lock = self._kernel_locks.setdefault(kernel_id, asyncio.Lock())
         try:
-            async with lock:
-                response = await asyncio.to_thread(self.kernels.execute, kernel_id, code, timeout)
+            response = await self.kernels.execute_async(kernel_id, code, timeout, store_history=False)
         except KeyError as error:
             raise ToolFailure("kernel_unavailable", str(error)) from error
         except TimeoutError as error:

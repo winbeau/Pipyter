@@ -13,7 +13,7 @@ from nbformat import NotebookNode
 
 from .models import ToolFailure, success
 from ..workspace.files import atomic_write_bytes
-from .tools import resolve_target, revision_bytes
+from .tools import public_path, resolve_target, revision_bytes
 
 
 class NotebookService:
@@ -21,7 +21,6 @@ class NotebookService:
         self.workspace = workspace.expanduser().resolve()
         self.kernels = kernels
         self._locks: defaultdict[Path, asyncio.Lock] = defaultdict(asyncio.Lock)
-        self._kernel_locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 
     async def dispatch(self, arguments: dict[str, Any], *, kernel_id: str | None = None):
         action = arguments.get("action")
@@ -51,7 +50,7 @@ class NotebookService:
             else:
                 cell, index = self._find(notebook, requested_cell_id)
             data = self._cell_data(cell, index, bool(arguments.get("include_outputs", False)))
-            data.update({"path": str(path), "revision": revision_bytes(raw)})
+            data.update({"path": public_path(self.workspace, path), "revision": revision_bytes(raw)})
             return success(f"Read cell {cell.id}", data=data)
 
     async def _mutation(self, action: str, arguments: dict[str, Any]):
@@ -147,8 +146,7 @@ class NotebookService:
             cell_id = cell.id
         timeout = float(arguments.get("timeout", 120))
         try:
-            async with self._kernel_locks[kernel_id]:
-                response = await asyncio.to_thread(self.kernels.execute, kernel_id, source, timeout)
+            response = await self.kernels.execute_async(kernel_id, source, timeout, store_history=True)
         except KeyError as error:
             raise ToolFailure("kernel_unavailable", str(error)) from error
         except TimeoutError as error:
@@ -176,7 +174,7 @@ class NotebookService:
         try:
             raw = path.read_bytes()
         except FileNotFoundError as error:
-            raise ToolFailure("not_found", f"Not found: {path}") from error
+            raise ToolFailure("not_found", f"Not found: {public_path(self.workspace, path)}") from error
         try:
             text = raw.decode("utf-8")
             raw_document = json.loads(text)

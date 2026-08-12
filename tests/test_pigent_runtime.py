@@ -35,7 +35,7 @@ def test_host_jsonl_handshake_mode_change_and_crash_recovery(tmp_path, built_hos
         try:
             client = await manager.ensure_started()
             handshake = await client.command("handshake")
-            assert handshake["protocol_version"] == "0.1"
+            assert handshake["protocol_version"] == "0.2"
             assert len(handshake["tools"]) == 10
             session = {"id": "pigent_test", "mode": "ask", "execution_identity": {}, "tools": []}
             created = await client.command("create_session", session=session)
@@ -123,12 +123,12 @@ def test_public_stream_replay_and_cursor_are_monotonic(tmp_path):
             cursor = websocket.receive_json()
         assert [(first["event_id"], first["type"]), (second["event_id"], second["type"]),
                 (cursor["event_id"], cursor["type"])] == [
-            (1, "assistant.text"), (2, "assistant.text"), (3, "reconnect.cursor"),
+            (1, "assistant.text"), (2, "assistant.text"), (None, "reconnect.cursor"),
         ]
         with client.websocket_connect(f"/api/v1/pigent/sessions/{session.id}/stream?after_event_id=2") as websocket:
             next_cursor = websocket.receive_json()
-        assert (next_cursor["event_id"], next_cursor["type"]) == (4, "reconnect.cursor")
-    assert session.next_event_id == 5
+        assert (next_cursor["event_id"], next_cursor["type"]) == (None, "reconnect.cursor")
+    assert session.next_event_id == 3
 
 
 def test_mode_change_emits_once_and_lifecycle_state_is_authoritative(tmp_path):
@@ -171,7 +171,7 @@ def test_mode_change_emits_once_and_lifecycle_state_is_authoritative(tmp_path):
                                   "payload": {"status": "waiting_for_user"}}))
     assert session.status == "waiting_for_user"
     session.status = "completed"
-    asyncio.run(service.message(session, MessageCreate(content="continue")))
+    asyncio.run(service.message(session, MessageCreate(client_message_id="msg_continue", content="continue")))
     assert session.status == "active"
     assert session.events[-1]["type"] == "session.updated"
 
@@ -276,6 +276,7 @@ def test_execution_identity_is_injected_into_host_session(tmp_path):
     assert identity == session.execution_identity
     assert set(identity) == {"username", "uid", "home", "workspace"}
     assert identity["workspace"] == str(tmp_path)
+    assert "execution_identity" not in service.summary(session)
 
 
 def test_raw_host_ready_malformed_jsonl_commands_and_monotonic_events(tmp_path, built_host):
@@ -286,7 +287,7 @@ def test_raw_host_ready_malformed_jsonl_commands_and_monotonic_events(tmp_path, 
         session_dir = tmp_path / "sessions"
         startup = tmp_path / "startup.json"
         startup.write_text(json.dumps({
-            "version": 1, "protocolVersion": "0.1", "workspaceId": "workspace-1",
+            "version": 1, "protocolVersion": "0.2", "workspaceId": "workspace-1",
             "workspaceRoot": str(tmp_path), "userConfigDir": str(config.directory),
             "sessionDir": str(session_dir), "bridgeEndpoint": "http://127.0.0.1:9/internal/pigent/v1",
         }), encoding="utf-8")
@@ -318,7 +319,7 @@ def test_raw_host_ready_malformed_jsonl_commands_and_monotonic_events(tmp_path, 
         ready = await read_record()
         assert ready["kind"] == "host_event"
         assert ready["event"]["type"] == "pigent.ready"
-        assert ready["event"]["payload"]["protocol_version"] == "0.1"
+        assert ready["event"]["payload"]["protocol_version"] == "0.2"
 
         await send("{bad json")
         malformed = await read_record()
@@ -329,7 +330,7 @@ def test_raw_host_ready_malformed_jsonl_commands_and_monotonic_events(tmp_path, 
         assert handshake["tools"] == ["read", "view", "write", "update", "bash", "notebook", "kernel", "inspect", "tasks", "delegate"]
         assert "pilot" not in json.dumps(handshake).lower()
         assert handshake["action_filters"]["notebook"]["ask"] == ["read_cell"]
-        assert handshake["action_filters"]["kernel"]["plan"] == ["status"]
+        assert handshake["action_filters"]["kernel"]["plan"] == ["status", "list_environments", "operation_status"]
 
         identity = {"username": "runtime-user", "uid": 123, "home": "/home/runtime-user", "workspace": str(tmp_path)}
         await send({"version": 1, "id": "c", "command": "create_session",
@@ -345,7 +346,8 @@ def test_raw_host_ready_malformed_jsonl_commands_and_monotonic_events(tmp_path, 
         await send({"version": 1, "id": "r", "command": "reconnect", "session_id": "pigent_raw", "after_event_id": 0})
         reconnect_response, reconnect_events = await response_for("r")
         assert reconnect_response["ok"] is True
-        await send({"version": 1, "id": "p", "command": "prompt", "session_id": "pigent_raw", "text": "hello"})
+        await send({"version": 1, "id": "p", "command": "prompt", "session_id": "pigent_raw", "text": "hello",
+                    "client_message_id": "client_raw", "run_id": "run_raw", "turn_id": "turn_raw"})
         prompt_response, prompt_events = await response_for("p")
         assert prompt_response["accepted"] is True
         events = mode_events + reconnect_events + prompt_events
@@ -356,6 +358,8 @@ def test_raw_host_ready_malformed_jsonl_commands_and_monotonic_events(tmp_path, 
         ids = [event["event_id"] for event in events]
         assert ids == sorted(ids) and len(ids) == len(set(ids))
         assert {event["type"] for event in events} >= {"mode.changed", "reconnect.cursor", "settled"}
+        correlated = [event for event in events if event["type"] in {"assistant.text", "settled"}]
+        assert correlated and all(event["payload"].get("run_id") == "run_raw" and event["payload"].get("turn_id") == "turn_raw" for event in correlated)
 
         await send({"version": 1, "id": "a", "command": "abort", "session_id": "pigent_raw"})
         assert (await response_for("a"))[0]["ok"] is True

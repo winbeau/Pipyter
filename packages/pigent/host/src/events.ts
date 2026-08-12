@@ -4,7 +4,8 @@ export const EVENT_TYPES = [
   "session.created", "session.updated", "mode.changed", "assistant.text", "assistant.thinking",
   "tool.start", "tool.update", "tool.end", "tasks.snapshot", "delegate.start", "delegate.update",
   "delegate.end", "interaction.required", "interaction.resolved", "context.updated", "kernel.updated",
-  "artifact.created", "error", "aborted", "settled", "reconnect.cursor",
+  "artifact.created", "error", "aborted", "settled", "reconnect.cursor", "operation.started",
+  "operation.updated", "operation.ended", "kernel.environment.updated",
 ] as const;
 export type EventType = typeof EVENT_TYPES[number];
 
@@ -32,19 +33,27 @@ export class EventEmitter {
   private readonly send: (event: StableEvent) => void;
   private assistantText = "";
   private assistantMessageId: string | null = null;
+  private correlation: Record<string, string> = {};
+  private readonly pendingCorrelations: Array<{ client_message_id: string; run_id: string; turn_id: string }> = [];
   constructor(sessionId: string, send: (event: StableEvent) => void) {
     this.sessionId = sessionId;
     this.send = send;
   }
+  queueCorrelation(value: { client_message_id?: string; run_id?: string; turn_id?: string }): void {
+    if (typeof value.client_message_id === "string" && typeof value.run_id === "string" && typeof value.turn_id === "string")
+      this.pendingCorrelations.push(value as { client_message_id: string; run_id: string; turn_id: string });
+  }
   emit(type: EventType, payload: Record<string, unknown> = {}): StableEvent {
+    const correlated = type === "session.created" || type === "reconnect.cursor" ? payload : { ...this.correlation, ...payload };
     const event: StableEvent = { version: 1, event_id: this.nextId++, session_id: this.sessionId,
-      type, timestamp: new Date().toISOString(), payload: sanitizeEventPayload(payload) as Record<string, unknown> };
+      type, timestamp: new Date().toISOString(), payload: sanitizeEventPayload(correlated) as Record<string, unknown> };
     this.send(event);
     return event;
   }
   translate(event: any): void {
     switch (event?.type) {
       case "message_start":
+        if (event.message?.role === "user") this.correlation = this.pendingCorrelations.shift() ?? this.correlation;
         if (event.message?.role === "assistant") {
           this.assistantText = "";
           this.assistantMessageId = randomUUID();
@@ -95,7 +104,7 @@ export class EventEmitter {
       case "tool_execution_end":
         this.emit("tool.end", { tool_call_id: event.toolCallId, tool: event.toolName,
           status: event.isError ? "failed" : "completed", result: event.result }); return;
-      case "agent_settled": this.assistantText = ""; this.assistantMessageId = null; this.emit("settled"); return;
+      case "agent_settled": this.assistantText = ""; this.assistantMessageId = null; this.emit("settled"); this.correlation = {}; return;
       default: return; // raw copied-runtime event names never cross the host protocol
     }
   }

@@ -1,3 +1,5 @@
-from .manager import KernelRuntime
+from .manager import KernelRuntime, KernelSessionRegistry
+from .environments import KernelEnvironmentRegistry
+from .operations import OperationManager
 
-__all__ = ["KernelRuntime"]
+__all__ = ["KernelRuntime", "KernelSessionRegistry", "KernelEnvironmentRegistry", "OperationManager"]

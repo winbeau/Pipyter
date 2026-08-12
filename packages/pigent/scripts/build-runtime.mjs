@@ -6,6 +6,7 @@ import { basename, dirname, extname, join, relative, resolve, sep } from "node:p
 import { fileURLToPath } from "node:url";
 
 const NODE_MIN = "22.19.0";
+const PIGENT_PROTOCOL_VERSION = "0.2";
 const here = dirname(fileURLToPath(import.meta.url));
 const workspace = resolve(here, "..");
 const repository = resolve(workspace, "../..");
@@ -41,7 +42,10 @@ function writeJson(path, value) {
 function pathParts(path) { return path.split(/[\\/]+/).filter(Boolean); }
 function forbiddenPath(rel) {
   const parts = pathParts(rel);
-  return parts.some((part) => forbiddenSegments.has(part.toLowerCase())) || forbiddenNames.has(basename(rel).toLowerCase()) || basename(rel) === "__pycache__";
+  return parts.some((part) => {
+    const lower = part.toLowerCase();
+    return forbiddenSegments.has(lower) || /^(?:browser|system|integration|unit)-test$/.test(lower) || /^test-/.test(lower) || /-tests?$/.test(lower);
+  }) || forbiddenNames.has(basename(rel).toLowerCase()) || basename(rel) === "__pycache__";
 }
 function copyRuntimeTree(source, destination) {
   const rootReal = realpathSync(source);
@@ -108,7 +112,9 @@ function validatePayloadContent(root, files) {
 }
 function validatePayload(root, manifest) {
   if (!existsSync(root)) throw new Error(`Pigent payload missing: ${root}`);
-  if (manifest.portable !== true || manifest.node_min !== NODE_MIN || manifest.external_engine_required !== false)
+  if (manifest.portable !== true || manifest.node_min !== NODE_MIN || manifest.external_engine_required !== false ||
+      manifest.schema_version !== 2 || manifest.host_protocol_version !== PIGENT_PROTOCOL_VERSION ||
+      manifest.tool_protocol_version !== PIGENT_PROTOCOL_VERSION)
     throw new Error("Pigent manifest portability/runtime contract mismatch");
   const payloadFiles = allFiles(root).sort(compareNames);
   validatePayloadContent(root, payloadFiles);
@@ -187,9 +193,9 @@ const stagedFiles = allFiles(output).filter((item) => item !== "manifest.json").
 validatePayloadContent(output, stagedFiles);
 const files = Object.fromEntries(stagedFiles.map((item) => [item, sha256(join(output, item))]));
 writeJson(join(output, "manifest.json"), {
-  schema_version: 1, runtime: "pigent-host", runtime_version: pipyterVersion, pigent_version: pipyterVersion,
+  schema_version: 2, runtime: "pigent-host", runtime_version: pipyterVersion, pigent_version: pipyterVersion,
   pipyter_version: pipyterVersion, source_package: "packages/pigent", host_entry: "host.mjs",
-  host_protocol_version: "0.1", tool_protocol_version: "0.1", protocol_package_version: json(join(repository, "packages/protocol/package.json")).version,
+  host_protocol_version: PIGENT_PROTOCOL_VERSION, tool_protocol_version: PIGENT_PROTOCOL_VERSION, protocol_package_version: json(join(repository, "packages/protocol/package.json")).version,
   node_min: NODE_MIN, portable: true, first_party: true, external_engine_required: false, files,
 });
 verify();

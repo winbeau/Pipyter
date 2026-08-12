@@ -128,7 +128,7 @@ def test_model_resolution_is_strict_and_ignores_legacy_files(tmp_path, monkeypat
     assert store.resolve_model()["model"] == "selected"
 
 
-def test_ui_model_selection_is_allowlisted_revisioned_and_uses_only_two_files(tmp_path):
+def test_ui_model_selection_is_catalog_driven_revisioned_and_uses_only_two_files(tmp_path):
     store = PigentConfigStore(tmp_path)
     store.write_settings({"version": 1, "defaultProvider": "deepseek", "defaultModel": "deepseek-v4-flash"})
     store.write_auth({
@@ -136,7 +136,9 @@ def test_ui_model_selection_is_allowlisted_revisioned_and_uses_only_two_files(tm
         "openai": {"type": "api_key", "baseUrl": "https://openai.test", "key": "secret-openai"},
     })
     state = store.ui_model_state()
-    assert [item["id"] for item in state["models"]] == [item["id"] for item in PIGENT_UI_MODELS]
+    assert {(item["provider"], item["model"]) for item in state["models"]} == {
+        (item["provider"], item["model"]) for item in PIGENT_UI_MODELS
+    }
     assert all(item["configured"] for item in state["models"])
     assert "secret-" not in json.dumps(state)
 
@@ -144,6 +146,6 @@ def test_ui_model_selection_is_allowlisted_revisioned_and_uses_only_two_files(tm
     assert resolved == {"provider": "deepseek", "model": "deepseek-v4-pro", "baseUrl": "https://deepseek.test"}
     assert store.read_settings().value["defaultModel"] == "deepseek-v4-pro"
     assert written.revision != state["settings_revision"]
-    with pytest.raises(PigentConfigError, match="unsupported Pigent model"):
+    with pytest.raises(PigentConfigError, match="model_configuration_required"):
         store.select_ui_model("custom", "anything", written.revision)
     assert {path.name for path in store.directory.iterdir()} == {"settings.json", "auth.json"}

@@ -8,6 +8,6 @@ const modes: { id: PigentMode; label: string; hint: string }[] = [
 export const modeHint = (mode: PigentMode) => modes.find((item) => item.id === mode)?.hint ?? ''
 export function ModeSelector({ mode, pendingMode, onChange, compact = false }: { mode: PigentMode; pendingMode?: PigentMode | null; onChange(mode: PigentMode): void; compact?: boolean }) {
   return <div className={`pigent-mode-selector${compact ? ' pigent-mode-compact' : ''}`} role="radiogroup" aria-label="Pigent mode">
-    {modes.map((item) => <button key={item.id} type="button" role="radio" aria-checked={mode === item.id} title={item.hint} className={`${mode === item.id ? 'is-active' : ''}${pendingMode === item.id ? ' is-pending' : ''}`} onClick={() => onChange(item.id)}>{item.label}{pendingMode === item.id && <span className="sr-only"> pending</span>}</button>)}
+    {modes.map((item) => <button key={item.id} type="button" role="radio" disabled={Boolean(pendingMode)} aria-checked={mode === item.id} title={item.hint} className={`${mode === item.id ? 'is-active' : ''}${pendingMode === item.id ? ' is-pending' : ''}`} onClick={() => onChange(item.id)}>{item.label}{pendingMode === item.id && <span className="sr-only"> pending</span>}</button>)}
   </div>
 }

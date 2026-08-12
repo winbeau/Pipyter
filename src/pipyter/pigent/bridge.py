@@ -54,11 +54,15 @@ class PigentBridge:
         kernels: Any,
         *,
         terminal_sessions: Any | None = None,
+        environments: Any | None = None,
+        operations: Any | None = None,
         idempotency_ttl: float = 300,
     ):
         self.workspace = workspace.expanduser().resolve()
         self.workspace_id = workspace_id
         self.kernels = kernels
+        self.environments = environments
+        self.operations = operations
         self.idempotency_ttl = idempotency_ttl
         self.artifacts = ArtifactRegistry(self.workspace)
         self.files = FileToolService(self.workspace, self.artifacts)
@@ -160,7 +164,7 @@ class PigentBridge:
                 notebook_arguments["path"] = active_document["path"]
             return await self.notebooks.dispatch(notebook_arguments, kernel_id=context.active_kernel_id)
         if tool == "kernel":
-            return await self._kernel(arguments, context.active_kernel_id)
+            return await self._kernel(arguments, context.active_kernel_id, context)
         if tool == "inspect":
             return await self.inspection.inspect(arguments, kernel_id=context.active_kernel_id)
         handler = self.handlers.get(tool)
@@ -168,7 +172,7 @@ class PigentBridge:
             raise ToolFailure("service_unavailable", f"{tool} is not connected in the Phase 2 bridge")
         return await handler(arguments, context)
 
-    async def _kernel(self, arguments: dict[str, Any], kernel_id: str | None) -> PigentToolResult:
+    async def _kernel(self, arguments: dict[str, Any], kernel_id: str | None, context: PigentToolContext) -> PigentToolResult:
         action = arguments.get("action")
         if action == "status":
             if kernel_id is None:
@@ -179,19 +183,67 @@ class PigentBridge:
             item = items[0]
             data = item.model_dump() if hasattr(item, "model_dump") else dict(item)
             return PigentToolResult(ok=True, summary=f"Kernel {data.get('status', 'unknown')}", data=data)
+        if action == "list_environments":
+            if self.environments is None:
+                raise ToolFailure("service_unavailable", "Kernel environment management is unavailable")
+            values = [item.model_dump(mode="json") for item in self.environments.summaries(self.kernels.active_by_environment())]
+            return PigentToolResult(ok=True, summary=f"Listed {len(values)} Kernel environments", data={"environments": values})
+        if action == "operation_status":
+            if self.operations is None:
+                raise ToolFailure("service_unavailable", "Kernel operation service is unavailable")
+            value = self.operations.get(str(arguments.get("operation_id", "")))
+            return PigentToolResult(ok=True, summary=f"Operation {value.state}", data={"operation": value.model_dump(mode="json")})
+        if action in {"create_temporary", "create_maintained", "sync_environment", "promote_environment", "delete_environment"}:
+            if self.operations is None:
+                raise ToolFailure("service_unavailable", "Kernel operation service is unavailable")
+            if action == "create_temporary":
+                accepted = self.operations.create_temporary(arguments, session_id=context.session_id, tool_call_id=context.tool_call_id)
+            elif action == "create_maintained":
+                accepted = self.operations.create_maintained(arguments, session_id=context.session_id, tool_call_id=context.tool_call_id)
+            elif action == "sync_environment":
+                accepted = self.operations.sync(str(arguments.get("environment_id", "")), session_id=context.session_id, tool_call_id=context.tool_call_id)
+            elif action == "promote_environment":
+                environment_id = str(arguments.get("environment_id", ""))
+                if self.kernels.active_by_environment().get(environment_id) and not arguments.get("confirm_shutdown"):
+                    raise ToolFailure("kernel_environment_busy", "Environment has active Kernels; explicit shutdown confirmation is required")
+                accepted = self.operations.promote(environment_id, str(arguments.get("name", "")), arguments.get("display_name"), session_id=context.session_id, tool_call_id=context.tool_call_id)
+            else:
+                environment_id = str(arguments.get("environment_id", ""))
+                if self.kernels.active_by_environment().get(environment_id):
+                    raise ToolFailure("kernel_environment_busy", "Environment has active Kernels")
+                if self.environments.get(environment_id).get("kind") == "maintained" and not arguments.get("confirmed"):
+                    raise ToolFailure("confirmation_required", "Deleting a maintained environment requires confirmed=true")
+                accepted = self.operations.delete(environment_id, session_id=context.session_id, tool_call_id=context.tool_call_id)
+            data = {"accepted": True, "operation_id": accepted.operation_id, "environment_id": accepted.resource.id,
+                    "state": accepted.state, "operation": accepted.model_dump(mode="json")}
+            return PigentToolResult(ok=True, summary="Kernel environment operation accepted", data=data)
+        if action == "start_environment":
+            environment_id = str(arguments.get("environment_id", ""))
+            try:
+                summary = await self.kernels.start_async(None, environment_id=environment_id, notebook_path=arguments.get("notebook_path"))
+            except Exception as error:
+                raise ToolFailure("kernel_environment_conflict", str(error)) from error
+            self.update_session(context.session_id, active_kernel_id=summary.id)
+            return PigentToolResult(ok=True, summary="Kernel environment started", data=summary.model_dump(mode="json"))
         if action == "execute":
             if kernel_id is None:
                 raise ToolFailure("kernel_unavailable", "No active kernel")
-            result = await asyncio.to_thread(self.kernels.execute, kernel_id, str(arguments.get("code", "")), arguments.get("timeout", 30))
+            result = await self.kernels.execute_async(kernel_id, str(arguments.get("code", "")), arguments.get("timeout", 30),
+                                                      store_history=bool(arguments.get("store_history", False)))
             data = result.model_dump() if hasattr(result, "model_dump") else dict(result)
             return PigentToolResult(ok=True, summary="Kernel execution completed", data=data)
         if kernel_id is None:
             raise ToolFailure("kernel_unavailable", "No active kernel")
-        operation = {"interrupt": self.kernels.interrupt, "restart": self.kernels.restart,
-                     "shutdown": self.kernels.shutdown}.get(action)
-        if operation is None:
+        if action == "interrupt":
+            result = await self.kernels.interrupt_async(kernel_id)
+        elif action == "restart":
+            result = await self.kernels.restart_async(kernel_id)
+        elif action == "shutdown":
+            await self.kernels.shutdown_async(kernel_id)
+            self.update_session(context.session_id, clear_active_kernel=True)
+            result = None
+        else:
             raise ToolFailure("invalid_request", f"Unknown kernel action: {action}")
-        result = await asyncio.to_thread(operation, kernel_id)
         data = result.model_dump() if hasattr(result, "model_dump") else {}
         return PigentToolResult(ok=True, summary=f"Kernel {action} completed", data=data)
 

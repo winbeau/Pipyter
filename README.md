@@ -36,6 +36,15 @@ Pigent model/API configuration uses exactly:
 
 `settings.json` selects providers/models and stores non-secret model/protocol definitions; `auth.json` stores API-key/OAuth credentials. Pipyter does not use `models.json`, `models-store.json`, or automatically inherit `~/.beaupi/` configuration. `XDG_CONFIG_HOME` is respected when set.
 
+To migrate only a trusted SSH host's selected DeepSeek provider without printing credentials:
+
+```bash
+pigent config migrate-ssh --source <trusted-ssh-alias> --provider deepseek --preview
+pigent config migrate-ssh --source <trusted-ssh-alias> --provider deepseek --apply
+```
+
+The modern Pigent UI is served by `pipyter lab` on `http://127.0.0.1:8895` by default. It provides live optimistic messages and Stop/Abort, interaction receipts, shared Dedicated/Workspace ToolSurfaces, searchable/paged sessions, artifacts, and private temporary/maintained uv Kernel environments under the Pipyter config root.
+
 ## Web development
 
 ```bash
@@ -49,5 +58,7 @@ Verification:
 ```bash
 cd web
 pnpm typecheck
+pnpm test
 pnpm build
+pnpm test:e2e
 ```

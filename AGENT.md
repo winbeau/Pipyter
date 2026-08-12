@@ -228,20 +228,18 @@ After this path works, add Figure Studio, figure/code synchronization, advanced 
 
 ### Versioning
 
-- The single source of truth is `src/pipyter/_version.py` (e.g. `__version__ = "0.1.0"`).
+- The single source of truth for the Python release and generated Pigent payload is `src/pipyter/_version.py` (e.g. `__version__ = "0.2.0"`). Keep the private Pigent/Protocol workspace metadata aligned for diagnostics; these workspaces are not published to npm.
 - PyPI does not allow re-uploading an already published version: bump the version for every release.
 - Keep the changelog and the version bump in the same commit.
 
 ### Preflight checklist
 
-1. `uv run pytest` — the full suite must pass.
-2. Build/typecheck tracked `packages/pigent/` and verify it succeeds with `engines/` absent.
-3. `cd web && pnpm typecheck && pnpm build` — the portal build lands in ignored `src/pipyter/static`, which Hatchling includes in release artifacts.
-4. Build the deterministic Pigent Node payload from tracked source.
-5. `uv build` — creates the sdist and wheel.
-6. Inspect both archives: they must contain Python modules, protocol schemas, web static assets, Pigent payload/manifest, both entrypoints, and no `engines/`, caches, sessions, credentials, user model config, or `__pycache__`.
-7. Install the wheel into a clean venv and smoke-test `pipyter --version`, `pigent --version`, and `pipyter doctor .`.
-8. Run a separate `uv tool install pipyter` smoke from the built distribution and verify first config initialization creates only `pigent/settings.json` and `pigent/auth.json`.
+1. `uv run pytest -q` — the full suite must pass.
+2. Typecheck/test/build tracked `packages/pigent/` and `packages/protocol/`, then verify Pigent succeeds with `engines/` absent.
+3. `cd web && pnpm typecheck && pnpm test && pnpm build && pnpm test:e2e` — the portal build lands in ignored `src/pipyter/static`, which Hatchling includes in release artifacts.
+4. Build and verify the deterministic Pigent Node payload from tracked source.
+5. `uv build --clear` — creates exactly one sdist and wheel.
+6. `uv run python scripts/release_verify.py` — scans both archives, validates schemas/static/Payload hashes, rejects private/test/engine paths and credential patterns, rebuilds a wheel from the sdist, and runs an isolated `uv tool install` smoke with `pipyter --version`, `pigent --version`, `pipyter doctor .`, and embedded Payload verification.
 
 ### Publishing
 

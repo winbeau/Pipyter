@@ -1,5 +1,5 @@
 /**
- * Pigent v0.1 frozen-contract tests (TypeScript side).
+ * Pigent v0.2 contract tests (TypeScript side).
  * Golden JSON fixtures under schemas/fixtures are shared with the Python
  * tests (tests/test_pigent_protocol.py) for cross-language consistency.
  */
@@ -40,14 +40,14 @@ const fixture = (name: string): unknown =>
   JSON.parse(readFileSync(resolve(here, '..', 'schemas', 'fixtures', name), 'utf-8'))
 
 test('frozen constants match the plan', () => {
-  assert.equal(PIGENT_PROTOCOL_VERSION, '0.1')
+  assert.equal(PIGENT_PROTOCOL_VERSION, '0.2')
   assert.deepEqual(PIGENT_TOOL_NAMES, [
     'read', 'view', 'write', 'update', 'bash', 'notebook', 'kernel', 'inspect', 'tasks', 'delegate',
   ])
   assert.deepEqual(PIGENT_MODES, ['ask', 'plan', 'auto'])
   assert.ok(!PIGENT_MODES.includes('pilot' as never))
-  assert.equal(PIGENT_ERROR_CODES.length, 19)
-  assert.equal(PIGENT_EVENT_TYPES.length, 21)
+  assert.equal(PIGENT_ERROR_CODES.length, 34)
+  assert.equal(PIGENT_EVENT_TYPES.length, 25)
   assert.deepEqual(PIGENT_TASK_STATUSES, ['pending', 'running', 'done', 'blocked', 'failed'])
   assert.deepEqual(PIGENT_SESSION_STATUSES, ['active', 'completed', 'failed', 'interrupted', 'waiting_for_user'])
   assert.deepEqual(PIGENT_ARTIFACT_KINDS, ['image', 'table', 'text', 'file'])
@@ -61,12 +61,12 @@ test('catalogs: ask/plan/auto projection', () => {
   assert.equal(PIGENT_CATALOGS.auto.length, 10)
   // Ask/Plan cannot reach execution actions merely because the parent tool exists.
   assert.deepEqual(allowedActions('notebook', 'ask'), ['read_cell'])
-  assert.deepEqual(allowedActions('kernel', 'plan'), ['status'])
+  assert.deepEqual(allowedActions('kernel', 'plan'), ['status', 'list_environments', 'operation_status'])
   assert.deepEqual(allowedActions('tasks', 'ask'), [])
   assert.deepEqual(allowedActions('delegate', 'ask'), ['analysis', 'research', 'review'])
   assert.deepEqual(allowedActions('delegate', 'auto'), ['analysis', 'research', 'review', 'implementation'])
   assert.equal(allowedActions('notebook', 'auto').length, 8)
-  assert.equal(allowedActions('kernel', 'auto').length, 5)
+  assert.equal(allowedActions('kernel', 'auto').length, 13)
   assert.equal(allowedActions('inspect', 'auto').length, 5)
   assert.equal(allowedActions('tasks', 'auto').length, 3)
   // No aliases: watch and edit are not in the action graph anywhere.
@@ -125,7 +125,7 @@ test('golden session fixture satisfies PigentSession', () => {
   const golden = fixture('golden-session-state.json') as { session: PigentSession }
   const s = golden.session
   assert.equal(s.mode, 'auto')
-  assert.equal(s.execution_identity.username, 'researcher')
+  assert.equal('execution_identity' in s, false)
   assert.equal(s.tasks_snapshot?.root.status, 'running')
   assert.equal(s.tasks_snapshot?.root.children?.length, 3)
   const done = s.tasks_snapshot!.root.children!.find((c) => c.id === 'locate')!
@@ -135,7 +135,7 @@ test('golden session fixture satisfies PigentSession', () => {
 test('golden events fixture satisfies PigentEvent and never carries secrets', () => {
   const golden = fixture('golden-events.json') as { events: PigentEvent[] }
   assert.equal(golden.events.length, 5)
-  const ids = golden.events.map((e) => e.event_id)
+  const ids = golden.events.map((e) => e.event_id).filter((id): id is number => id !== null)
   assert.deepEqual(ids, [...ids].sort((a, b) => a - b))
   const interaction = golden.events.find((e) => e.type === 'interaction.required')!
   const payload = interaction.payload as { interaction: { kind: string; choices: string[] } }
@@ -149,7 +149,7 @@ test('golden events fixture satisfies PigentEvent and never carries secrets', ()
 
 test('golden tool context envelope type checks', () => {
   const context: PigentToolContext = {
-    protocol_version: '0.1',
+    protocol_version: '0.2',
     tool_call_id: 'call_x',
     session_id: 'pigent_s',
     workspace_id: 'workspace_1',

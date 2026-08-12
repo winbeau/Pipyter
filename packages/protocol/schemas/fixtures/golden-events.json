@@ -1,7 +1,7 @@
 {
   "name": "golden-events",
   "description": "Cross-language golden fixture: public Pigent events including tool lifecycle and a PTY-handoff interaction. Interaction events never contain passwords, tokens, headers or terminal input bytes.",
-  "protocol_version": "0.1",
+  "protocol_version": "0.2",
   "events": [
     {
       "version": 1,
@@ -55,7 +55,10 @@
           "summary": "Command is waiting for terminal input",
           "shell_session_id": "shell_01",
           "command_preview": "sudo apt-get install -y cmake",
-          "choices": ["open_shell", "cancel"]
+          "choices": [
+            "open_shell",
+            "cancel"
+          ]
         }
       }
     },

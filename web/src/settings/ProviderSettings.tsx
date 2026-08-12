@@ -97,7 +97,7 @@ export function ProviderSettings() {
           </div>
         ))}
       </div>
-      {config && <div style={{ marginTop: 12, fontSize: 10.5, color: 'var(--text-3)', fontFamily: 'var(--mono)', lineHeight: 1.6 }}>settings: {config.settings_path}<br />auth: {config.auth_path}</div>}
+      {config && <div style={{ marginTop: 12, fontSize: 10.5, color: 'var(--text-3)', fontFamily: 'var(--mono)', lineHeight: 1.6 }}>config files: {config.config_files.join(', ')}</div>}
     </>
   )
 }

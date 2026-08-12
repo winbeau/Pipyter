@@ -58,8 +58,8 @@ def load_schema(name: str) -> dict:
 
 
 def test_protocol_version_is_frozen():
-    assert PIGENT_PROTOCOL_VERSION == "0.1"
-    assert load_schema("pigent-tools.schema.json")["definitions"]["protocolVersion"]["const"] == "0.1"
+    assert PIGENT_PROTOCOL_VERSION == "0.2"
+    assert load_schema("pigent-tools.schema.json")["definitions"]["protocolVersion"]["const"] == "0.2"
 
 
 def test_exactly_ten_tools():
@@ -77,13 +77,13 @@ def test_modes_reject_pilot():
     assert load_schema("pigent-modes.schema.json")["definitions"]["mode"]["enum"] == list(PIGENT_MODES)
     with pytest.raises(ValidationError):
         PigentToolContext(
-            protocol_version="0.1", tool_call_id="c", session_id="s", workspace_id="w", mode="pilot"  # type: ignore[arg-type]
+            protocol_version="0.2", tool_call_id="c", session_id="s", workspace_id="w", mode="pilot"  # type: ignore[arg-type]
         )
 
 
 def test_error_and_event_codes_are_stable():
-    assert len(PIGENT_ERROR_CODES) == 19
-    assert len(PIGENT_EVENT_TYPES) == 21
+    assert len(PIGENT_ERROR_CODES) == 34
+    assert len(PIGENT_EVENT_TYPES) == 25
     schema_errors = load_schema("pigent-tools.schema.json")["definitions"]["errorCode"]["enum"]
     schema_events = load_schema("pigent-events.schema.json")["definitions"]["eventType"]["enum"]
     assert list(PIGENT_ERROR_CODES) == schema_errors
@@ -95,7 +95,7 @@ def test_status_and_kind_enums_match_schema():
     assert PIGENT_SESSION_STATUSES == ("active", "completed", "failed", "interrupted", "waiting_for_user")
     assert PIGENT_ARTIFACT_KINDS == ("image", "table", "text", "file")
     assert PIGENT_DELEGATE_PROFILES == ("analysis", "research", "review", "implementation")
-    assert len(PIGENT_CAPABILITIES) == 15
+    assert len(PIGENT_CAPABILITIES) == 17
     schema_statuses = load_schema("pigent-session.schema.json")["definitions"]["sessionStatus"]["enum"]
     schema_kinds = load_schema("pigent-session.schema.json")["definitions"]["artifactKind"]["enum"]
     assert list(PIGENT_SESSION_STATUSES) == schema_statuses
@@ -132,12 +132,12 @@ def test_allowed_tools_projection():
 
 def test_allowed_actions_projection():
     assert allowed_actions("notebook", "ask") == ("read_cell",)
-    assert allowed_actions("kernel", "plan") == ("status",)
+    assert allowed_actions("kernel", "plan") == ("status", "list_environments", "operation_status")
     assert allowed_actions("tasks", "ask") == ()
     assert allowed_actions("delegate", "ask") == ("analysis", "research", "review")
     assert allowed_actions("delegate", "auto") == ("analysis", "research", "review", "implementation")
     assert allowed_actions("notebook", "auto") == NOTBOOK_ACTIONS
-    assert len(allowed_actions("kernel", "auto")) == 5
+    assert len(allowed_actions("kernel", "auto")) == 13
     assert allowed_actions("watch", "auto") == ()
     schema = load_schema("pigent-modes.schema.json")["definitions"]["toolActionFilter"]["properties"]
     assert list(allowed_actions("notebook", "auto")) == schema["notebook"]["properties"]["auto"]["items"]["enum"]
@@ -149,7 +149,7 @@ def test_fake_mode_in_arguments_does_not_change_trusted_mode():
     # rejected by the strict Literal, so an argument cannot smuggle a mode.
     with pytest.raises(ValidationError):
         PigentToolContext.model_validate(
-            {"protocol_version": "0.1", "tool_call_id": "c", "session_id": "s", "workspace_id": "w", "mode": "turbo"}
+            {"protocol_version": "0.2", "tool_call_id": "c", "session_id": "s", "workspace_id": "w", "mode": "turbo"}
         )
 
 
@@ -211,7 +211,7 @@ def test_session_round_trip_golden():
     golden = load_fixture("golden-session-state.json")
     session = PigentSession.model_validate(golden["session"])
     assert session.mode == "auto"
-    assert session.execution_identity.username == "researcher"
+    assert "execution_identity" not in session.model_dump()
     assert session.tasks_snapshot is not None
     assert session.tasks_snapshot.root.status == "running"
     done = next(c for c in session.tasks_snapshot.root.children if c.id == "locate")
@@ -266,6 +266,30 @@ def test_unknown_event_type_rejected():
     golden = load_fixture("golden-events.json")
     with pytest.raises(ValidationError):
         PigentEvent.model_validate(dict(golden["events"][0], type="tool.watch"))
+
+
+def test_v02_operation_and_surface_fixtures_are_deterministic():
+    from pipyter.protocol.pigent import KernelEnvironmentSummary, OperationEnvelope
+
+    golden = load_fixture("golden-v0.2-operations.json")
+    environment = KernelEnvironmentSummary.model_validate(golden["environment"])
+    assert environment.kind == "temporary" and environment.status == "provisioning"
+    operations = [OperationEnvelope.model_validate(event["payload"]["operation"]) for event in golden["operation_events"]]
+    assert [item.state for item in operations] == ["running", "running", "succeeded"]
+    assert operations[-1].receipt is not None and operations[-1].receipt.outcome == "success"
+    cursor = PigentEvent.model_validate(golden["reconnect_cursor"])
+    assert cursor.event_id is None and cursor.type == "reconnect.cursor"
+
+    surfaces = load_fixture("golden-tool-surfaces.json")
+    tool_names = {event.get("payload", {}).get("tool") for event in surfaces["events"]}
+    # tasks/delegate use dedicated public lifecycle event families.
+    assert tool_names >= {"read", "view", "write", "update", "bash", "notebook", "kernel", "inspect"}
+    assert any(event["type"] == "tasks.snapshot" for event in surfaces["events"])
+    assert any(event["type"] == "delegate.end" for event in surfaces["events"])
+    assert any(event["type"] == "artifact.created" for event in surfaces["events"])
+    assert any(event["type"] == "interaction.required" for event in surfaces["events"])
+    assert any(event["type"] == "aborted" for event in surfaces["events"])
+    assert "secret" not in json.dumps(surfaces).lower()
 
 
 # ---------------------------------------------------------------------------

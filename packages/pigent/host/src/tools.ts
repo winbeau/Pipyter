@@ -2,6 +2,9 @@ import type { AgentToolResult } from "@pipyter/pigent-agent";
 import { type ToolDefinition } from "@pipyter/pigent-runtime";
 import { Type, type TSchema } from "typebox";
 
+export const PROTOCOL_VERSION = "0.2" as const;
+export const CAPABILITIES = ["filesystem.read", "filesystem.write", "visual.read", "notebook.read", "notebook.write", "kernel.status", "kernel.inspect", "kernel.execute", "process.execute", "process.interactive", "network", "system.execute", "tasks.write", "delegate.read", "delegate.write", "kernel.environment.read", "kernel.environment.manage"] as const;
+
 // Mirrored from packages/protocol/src/pigent.ts. The protocol package is not a
 // runtime dependency of the self-contained Pigent payload; protocol tests keep
 // this projection byte-for-byte aligned with PIGENT_CATALOGS/ACTION_FILTERS.
@@ -15,7 +18,11 @@ export const CATALOGS: Record<Mode, readonly ToolName[]> = {
 };
 export const ACTION_FILTERS: Record<string, Record<Mode, readonly string[]>> = {
   notebook: { ask: ["read_cell"], plan: ["read_cell"], auto: ["read_cell", "update_cell", "insert_cell", "delete_cell", "move_cell", "run_cell", "add_markdown", "clear_output"] },
-  kernel: { ask: ["status"], plan: ["status"], auto: ["status", "execute", "interrupt", "restart", "shutdown"] },
+  kernel: {
+    ask: ["status", "list_environments", "operation_status"],
+    plan: ["status", "list_environments", "operation_status"],
+    auto: ["status", "execute", "interrupt", "restart", "shutdown", "list_environments", "operation_status", "create_temporary", "create_maintained", "sync_environment", "start_environment", "promote_environment", "delete_environment"],
+  },
   inspect: { ask: ["variables", "variable", "dataframe", "figure", "object"], plan: ["variables", "variable", "dataframe", "figure", "object"], auto: ["variables", "variable", "dataframe", "figure", "object"] },
   tasks: { ask: [], plan: ["get", "replace", "patch"], auto: ["get", "replace", "patch"] },
   delegate: { ask: ["analysis", "research", "review"], plan: ["analysis", "research", "review"], auto: ["analysis", "research", "review", "implementation"] },
@@ -113,6 +120,18 @@ function toolSchema(tool: ToolName, mode: Mode, activeDocument?: string): TSchem
         code: Type.Optional(Type.String({ description: "Scratch code for action=execute only; it does not update notebook cells." })),
         timeout: Type.Optional(Type.Number({ exclusiveMinimum: 0 })),
         store_history: Type.Optional(Type.Boolean()),
+        operation_id: Type.Optional(Type.String()),
+        environment_id: Type.Optional(Type.String()),
+        python: Type.Optional(Type.String()),
+        packages: Type.Optional(Type.Array(Type.String(), { maxItems: 100 })),
+        ttl_seconds: Type.Optional(Type.Integer({ minimum: 900, maximum: 604800 })),
+        name: Type.Optional(Type.String()),
+        display_name: Type.Optional(Type.String()),
+        source: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+        expected_revision: Type.Optional(Type.String()),
+        notebook_path: Type.Optional(Type.String()),
+        confirm_shutdown: Type.Optional(Type.Boolean()),
+        confirmed: Type.Optional(Type.Boolean()),
       }, { additionalProperties: false });
     case "inspect":
       return Type.Object({
@@ -150,7 +169,7 @@ function toolGuidance(tool: ToolName, context: ToolSessionContext): string {
         + "Never rewrite or probe .ipynb files through kernel, write, update, or bash when notebook can perform the operation." + active;
     }
     case "kernel":
-      return "Operate only the currently bound Jupyter kernel. Use execute for scratch probes, not for editing notebook files; use notebook.run_cell to execute and persist a notebook cell.";
+      return "Operate the currently bound Jupyter kernel or Pipyter-private Kernel environments. list_environments and operation_status are read-only in all modes. Environment create/sync/promote/delete return accepted operation references immediately; inspect operation_status before starting unfinished environments. Use environment_id only for Pipyter-private environments and never infer a global kernelspec name.";
     case "read":
       return "Read one text file or bounded directory listing. Use notebook.read_cell instead of parsing .ipynb JSON.";
     case "write":
@@ -213,7 +232,7 @@ async function bridgeCall(context: ToolSessionContext, tool: ToolName, toolCallI
   const response = await fetch(endpoint, {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${context.bridgeToken}` },
-    body: JSON.stringify({ context: { protocol_version: "0.1", tool_call_id: toolCallId,
+    body: JSON.stringify({ context: { protocol_version: PROTOCOL_VERSION, tool_call_id: toolCallId,
       session_id: context.sessionId, workspace_id: context.workspaceId, mode: context.mode,
       active_document: context.activeDocument ? { path: context.activeDocument } : undefined,
       active_kernel_id: context.activeKernelId }, arguments: arguments_ }), signal,

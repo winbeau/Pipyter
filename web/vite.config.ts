@@ -1,6 +1,8 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
+const runtimeTarget = process.env.PIPYTER_DEV_RUNTIME || 'http://127.0.0.1:8895'
+
 export default defineConfig({
   plugins: [react()],
   server: {
@@ -9,7 +11,7 @@ export default defineConfig({
     proxy: {
       // Runtime API (pipyter serve / pipyter up) during development.
       '/api': {
-        target: 'http://127.0.0.1:8765',
+        target: runtimeTarget,
         changeOrigin: true,
         ws: true,
       },

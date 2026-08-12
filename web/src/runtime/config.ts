@@ -33,7 +33,7 @@ const fallbackNode: RuntimeNodeConfig = {
   id: 'local',
   name: 'Local Runtime',
   apiBase: '',
-  allowDemo: true,
+  allowDemo: false,
   workspaces: [{ id: 'current', name: 'Current workspace' }],
 }
 

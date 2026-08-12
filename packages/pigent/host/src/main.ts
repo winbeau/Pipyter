@@ -7,13 +7,12 @@ import {
 } from "@pipyter/pigent-runtime";
 import { attachJsonlLineReader, serializeJsonLine } from "@pipyter/pigent-runtime";
 import { EVENT_TYPES, EventEmitter } from "./events.js";
-import { ACTION_FILTERS, CATALOGS, createToolDefinitions, type Mode, type ToolSessionContext, TOOL_NAMES } from "./tools.js";
+import { ACTION_FILTERS, CAPABILITIES, CATALOGS, createToolDefinitions, type Mode, PROTOCOL_VERSION, type ToolSessionContext, TOOL_NAMES } from "./tools.js";
 
-const VERSION = "0.1.0";
-const PROTOCOL_VERSION = "0.1";
+const VERSION = "0.2.0";
 
 interface StartupConfig {
-  version: 1; protocolVersion: "0.1"; workspaceId: string; workspaceRoot: string;
+  version: 1; protocolVersion: "0.2"; workspaceId: string; workspaceRoot: string;
   userConfigDir: string; sessionDir: string; bridgeEndpoint: string;
 }
 interface HostSession {
@@ -26,6 +25,7 @@ interface HostSession {
   setMode: (mode: Mode) => void;
   reloadModel: (provider: string, model: string) => Promise<{ provider: string; model: string }>;
   setContext: (activeDocument?: string, activeKernelId?: string) => void;
+  interactions: Map<string, Record<string, unknown>>;
 }
 
 function send(value: unknown): void { process.stdout.write(serializeJsonLine(value)); }
@@ -156,7 +156,12 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
           data: { status: mutation.status, snapshot }, error: mutation.status === "revision_conflict" ?
             { code: "revision_conflict", message: "Tasks revision conflict", retryable: true } : undefined };
       },
-      interaction: (payload: Record<string, unknown>) => eventEmitter.emit("interaction.required", payload),
+      interaction: (payload: Record<string, unknown>) => {
+        const interactionId = typeof payload.interaction_id === "string" ? payload.interaction_id : `interaction_${Date.now()}`;
+        const interaction = { version: 1, interaction_id: interactionId, session_id: record.id, revision: 1, ...payload };
+        hostSession?.interactions.set(interactionId, interaction);
+        eventEmitter.emit("interaction.required", { interaction, revision: 1 });
+      },
       delegate: async (args_: Record<string, any>, signal?: AbortSignal, update?: (value: unknown) => void) => {
         const profile = String(args_.profile ?? "analysis");
         if (!["analysis", "research", "review", "implementation"].includes(profile)) throw new Error("invalid delegate profile");
@@ -195,6 +200,7 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
         hostSession.model = { provider: next.provider, model: next.model };
         return hostSession.model;
       },
+      interactions: new Map(),
       setContext: (activeDocument?: string, activeKernelId?: string) => {
         context.activeDocument = activeDocument || undefined;
         context.activeKernelId = activeKernelId || undefined;
@@ -211,12 +217,24 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
       switch (command?.command) {
         case "handshake": response(id, { protocol_version: PROTOCOL_VERSION, runtime_version: VERSION,
           tool_protocol_version: PROTOCOL_VERSION, tools: TOOL_NAMES, modes: CATALOGS,
-          action_filters: ACTION_FILTERS, event_types: EVENT_TYPES.length }); return;
+          action_filters: ACTION_FILTERS, capabilities: CAPABILITIES, event_types: EVENT_TYPES }); return;
         case "create_session": { const item = await createSession(command.session); response(id, { session_id: command.session.id, model: item.model }); return; }
         case "delete_session": { const item = sessions.get(command.session_id); item?.unsubscribe(); item?.runtime.dispose(); sessions.delete(command.session_id); response(id); return; }
         case "prompt": case "follow_up": { const item = sessions.get(command.session_id); if (!item) throw new Error("session not found");
-          response(id, { accepted: true }); void item.runtime.prompt(String(command.text ?? ""), command.command === "follow_up" ? { streamingBehavior: "followUp" } : {}).catch((error) => item.events.emit("error", { code: "internal_error", message: String(error) })); return; }
-        case "abort": { const item = sessions.get(command.session_id); if (!item) throw new Error("session not found"); await item.runtime.abort(); item.events.emit("aborted"); response(id); return; }
+          item.events.queueCorrelation({ client_message_id: command.client_message_id, run_id: command.run_id, turn_id: command.turn_id });
+          response(id, { accepted: true, client_message_id: command.client_message_id, run_id: command.run_id, turn_id: command.turn_id });
+          item.events.emit("session.updated", { client_message_id: command.client_message_id, run_id: command.run_id, turn_id: command.turn_id, run_active: true });
+          void item.runtime.prompt(String(command.text ?? ""), command.command === "follow_up" ? { streamingBehavior: "followUp" } : {}).catch((error) => item.events.emit("error", { code: "internal_error", message: String(error), run_id: command.run_id, turn_id: command.turn_id })); return; }
+        case "abort": { const item = sessions.get(command.session_id); if (!item) throw new Error("session not found"); await item.runtime.abort(); item.events.emit("aborted", { run_id: command.run_id, reason: command.reason ?? "user_stop" }); response(id, { accepted: true }); return; }
+        case "interaction_resolve": { const item = sessions.get(command.session_id); if (!item) throw new Error("session not found");
+          const interaction = item.interactions.get(String(command.interaction_id));
+          if (!interaction || interaction.revision !== command.revision) throw new Error("interaction_superseded");
+          const choices = Array.isArray(interaction.choices) ? interaction.choices : [];
+          if (!choices.includes(command.action_id)) throw new Error("invalid interaction action");
+          item.interactions.delete(String(command.interaction_id));
+          const receipt = { outcome: "success", summary: `Interaction resolved: ${String(command.action_id)}`, identifiers: { interaction_id: String(command.interaction_id), decision_id: String(command.decision_id) }, at: new Date().toISOString() };
+          item.events.emit("interaction.resolved", { interaction_id: command.interaction_id, decision_id: command.decision_id, action_id: command.action_id, receipt });
+          response(id, { receipt }); return; }
         case "mode_change": { if (!["ask", "plan", "auto"].includes(command.mode) || command.mode === "pilot") throw new Error("invalid mode");
           const old = sessions.get(command.session_id); if (!old) throw new Error("session not found"); old.mode = command.mode; old.setMode(command.mode as Mode); old.events.emit("mode.changed", { mode: command.mode, tools: CATALOGS[command.mode as Mode], actions: ACTION_FILTERS }); response(id); return; }
         case "model_change": { const item = sessions.get(command.session_id); if (!item) throw new Error("session not found");
@@ -241,7 +259,7 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
   process.stdin.resume();
   send({ version: 1, kind: "host_event", event: { version: 1, type: "pigent.ready", timestamp: new Date().toISOString(),
     payload: { protocol_version: PROTOCOL_VERSION, runtime_version: VERSION, tool_protocol_version: PROTOCOL_VERSION,
-      tools: TOOL_NAMES, capabilities: ["jsonl", "prompt", "follow_up", "abort", "mode_change", "model_change", "context_change", "reconnect", "shutdown"] } } });
+      tools: TOOL_NAMES, capabilities: CAPABILITIES, commands: ["jsonl", "prompt", "follow_up", "abort", "mode_change", "model_change", "context_change", "reconnect", "shutdown"] } } });
   if (shuttingDown) process.exit(0);
 }
 

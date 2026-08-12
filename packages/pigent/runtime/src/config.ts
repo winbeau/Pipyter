@@ -2,7 +2,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const VERSION = "0.1.0";
+export const VERSION = "0.2.0";
 export const APP_NAME = "Pigent";
 export const PACKAGE_NAME = "@pipyter/pigent-runtime";
 export const CONFIG_DIR_NAME = "pipyter/pigent";

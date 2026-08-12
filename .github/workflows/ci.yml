@@ -1,0 +1,95 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.8.12"
+          enable-cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.19.0"
+          cache: npm
+          cache-dependency-path: packages/pigent/package-lock.json
+      - run: uv sync --extra dev --frozen
+      - run: npm ci --prefix packages/pigent
+      - run: npm run payload:build --prefix packages/pigent
+      - run: npm run payload:verify --prefix packages/pigent
+      - run: npm run check:engine-independence --prefix packages/pigent
+      - run: uv run pytest -q
+
+  typescript:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.19.0"
+          cache: npm
+          cache-dependency-path: |
+            packages/pigent/package-lock.json
+            packages/protocol/package-lock.json
+      - run: npm ci --prefix packages/pigent
+      - run: npm run typecheck --prefix packages/pigent
+      - run: npm test --prefix packages/pigent
+      - run: npm run build --prefix packages/pigent
+      - run: npm run host:smoke --prefix packages/pigent
+      - run: npm ci --prefix packages/protocol
+      - run: npm run typecheck --prefix packages/protocol
+      - run: npm test --prefix packages/protocol
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: "10.14.0"
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.19.0"
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - run: pnpm install --dir web --frozen-lockfile
+      - run: pnpm --dir web typecheck
+      - run: pnpm --dir web test
+      - run: pnpm --dir web build
+      - run: pnpm --dir web exec playwright install --with-deps chromium
+      - run: pnpm --dir web test:e2e
+
+  release-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.8.12"
+          enable-cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.19.0"
+          cache: npm
+          cache-dependency-path: packages/pigent/package-lock.json
+      - uses: pnpm/action-setup@v4
+        with:
+          version: "10.14.0"
+          run_install: false
+      - run: pnpm install --dir web --frozen-lockfile
+      - run: pnpm --dir web build
+      - run: npm ci --prefix packages/pigent
+      - run: npm run payload:build --prefix packages/pigent
+      - run: npm run payload:verify --prefix packages/pigent
+      - run: npm run check:engine-independence --prefix packages/pigent
+      - run: uv build --clear
+      - run: uv run python scripts/release_verify.py

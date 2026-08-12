@@ -1,18 +1,20 @@
-import { ChevronLeft, PanelRight, Orbit } from 'lucide-react'
+import { ChevronLeft, Menu, PanelRight, Orbit } from 'lucide-react'
 import type { PigentSession } from '../types'
 
 const statusLabel: Record<string, string> = { completed: 'Completed', failed: 'Failed', interrupted: 'Interrupted', waiting_for_user: 'Waiting for user' }
 
-export function PigentHeader({ session, runActive = false, detailOpen, onDetail, compact = false, onClose }: {
+export function PigentHeader({ session, runActive = false, detailOpen, onDetail, compact = false, onClose, onSessions }: {
   session?: PigentSession
   runActive?: boolean
   detailOpen?: boolean
   onDetail?(): void
   compact?: boolean
   onClose?(): void
+  onSessions?(): void
 }) {
   const stateLabel = runActive ? 'Running' : session?.status === 'active' ? 'Ready' : session ? statusLabel[session.status] || session.status : 'Ready'
   return <header className={`pigent-header${compact ? ' is-compact' : ''}`}>
+    {onSessions && <button type="button" className="pigent-sessions-toggle" onClick={onSessions} aria-label="打开 Pigent 会话列表"><Menu size={16} /></button>}
     <div className="pigent-identity"><Orbit size={compact ? 15 : 18} aria-hidden="true" /><strong>Pigent</strong><span className={`pigent-state-dot ${runActive ? 'is-running' : ''}`}>{stateLabel}</span></div>
     <div className="pigent-header-spacer" />
     {onDetail && <button type="button" className={detailOpen ? 'is-active' : ''} onClick={onDetail} aria-label="切换 Pigent 详情"><PanelRight size={15} /></button>}

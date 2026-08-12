@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import stat
 from pathlib import Path
 
@@ -30,6 +31,22 @@ def test_payload_manifest_is_sorted_portable_and_hash_verified(monkeypatch):
     assert manifest["external_engine_required"] is False
     assert list(manifest["files"]) == sorted(manifest["files"])
     assert not any("engines/" in path or path.endswith(".node") for path in manifest["files"])
+
+
+def test_payload_rejects_unhashed_absolute_or_traversal_host_entry(tmp_path, monkeypatch):
+    if not PAYLOAD.exists():
+        pytest.skip("generated Pigent payload is not present")
+    destination = tmp_path / "payload"
+    shutil.copytree(PAYLOAD, destination)
+    manifest_path = destination / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    monkeypatch.setenv(resources.PAYLOAD_ENV, str(destination))
+    for host_entry in (str(tmp_path / "outside.mjs"), "../outside.mjs", "unhashed.mjs"):
+        (tmp_path / "outside.mjs").write_text("", encoding="utf-8")
+        manifest["host_entry"] = host_entry
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        with pytest.raises(resources.PigentResourceError):
+            resources.verify_payload()
 
 
 def _fake_node(path: Path, version: str, *, exit_code: int = 0) -> Path:

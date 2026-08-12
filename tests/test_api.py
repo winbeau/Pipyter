@@ -53,6 +53,8 @@ def test_pigent_config_is_sanitized_and_bridge_credential_is_not_public(client):
     assert config.status_code == 200
     assert "browser-must-not-read-this" not in config.text
     assert "bridge" not in config.text.lower()
+    assert config.json()["config_files"] == ["settings.json", "auth.json"]
+    assert str(store.directory) not in config.text
     capabilities = client.get("/api/v1/pigent/capabilities")
     assert capabilities.status_code == 200
     assert client.app.state.pigent_bridge_credential not in capabilities.text

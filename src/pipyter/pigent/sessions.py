@@ -14,7 +14,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
-from ..protocol.pigent import PIGENT_ACTION_FILTERS, PIGENT_CAPABILITIES, PIGENT_CATALOGS, PIGENT_EVENT_TYPES
+from ..protocol.pigent import PIGENT_CATALOGS, PIGENT_EVENT_TYPES, PIGENT_PROTOCOL_VERSION
 from .config import PigentConfigError, PigentConfigStore
 from .manager import PigentManager, PigentUnavailable
 from .modes import normalize_mode
@@ -24,6 +24,19 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _public_event_value(value: Any) -> Any:
+    private_fields = {"executionidentity", "username", "uid", "home", "workspace", "workspaceroot", "userconfigdir", "sessiondir", "bridgeendpoint"}
+    if isinstance(value, list):
+        return [_public_event_value(item) for item in value]
+    if not isinstance(value, dict):
+        return value
+    return {
+        key: _public_event_value(item)
+        for key, item in value.items()
+        if "".join(character for character in key.casefold() if character.isalnum()) not in private_fields
+    }
+
+
 class SessionCreate(BaseModel):
     mode: str = "ask"
     approval_preference: str = "automatic"
@@ -31,8 +44,25 @@ class SessionCreate(BaseModel):
 
 
 class MessageCreate(BaseModel):
+    client_message_id: str = Field(min_length=1)
     content: str = Field(min_length=1)
     behavior: str = "prompt"
+
+
+class AbortRequest(BaseModel):
+    run_id: str | None = None
+    reason: str = "user_stop"
+
+
+class SessionPatch(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+
+
+class InteractionDecision(BaseModel):
+    revision: int = Field(ge=1)
+    decision_id: str = Field(min_length=1)
+    action_id: str = Field(min_length=1)
+    payload: dict[str, Any] = Field(default_factory=dict)
 
 
 class ModeChange(BaseModel):
@@ -48,6 +78,10 @@ class ModelChange(BaseModel):
 class ContextChange(BaseModel):
     active_document: str | None = None
     active_kernel_id: str | None = None
+    run_id: str | None = None
+    turn_id: str | None = None
+    accepted_messages: dict[str, dict[str, Any]] = field(default_factory=dict)
+    interactions: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -65,10 +99,15 @@ class SessionState:
     events: list[dict[str, Any]] = field(default_factory=list)
     next_event_id: int = 1
     subscribers: set[asyncio.Queue[dict[str, Any]]] = field(default_factory=set)
+    message_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     host_attached: bool = False
     run_active: bool = False
     active_document: str | None = None
     active_kernel_id: str | None = None
+    run_id: str | None = None
+    turn_id: str | None = None
+    accepted_messages: dict[str, dict[str, Any]] = field(default_factory=dict)
+    interactions: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 class PigentSessionService:
@@ -94,13 +133,14 @@ class PigentSessionService:
             "node_id": "local",
             "mode": session.mode,
             "approval_preference": session.approval_preference,
-            "execution_identity": session.execution_identity,
             "status": session.status,
             "title": session.title,
             "created_at": session.created_at,
             "last_activity_at": session.last_activity_at,
             "model": {"provider": session.model["provider"], "model": session.model["model"]},
             "tasks_snapshot": session.tasks,
+            "run_id": session.run_id,
+            "turn_id": session.turn_id,
         }
         if session.active_kernel_id:
             value["active_kernel_id"] = session.active_kernel_id
@@ -109,9 +149,12 @@ class PigentSessionService:
     def _persist(self, session: SessionState) -> None:
         self.state_dir.mkdir(parents=True, exist_ok=True)
         payload = self.summary(session)
+        payload["execution_identity"] = session.execution_identity
         payload["next_event_id"] = session.next_event_id
         payload["run_active"] = session.run_active
         payload["active_document_path"] = session.active_document
+        payload["accepted_messages"] = session.accepted_messages
+        payload["interactions"] = session.interactions
         fd, temporary = tempfile.mkstemp(prefix=f".{session.id}.", dir=self.state_dir)
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
@@ -133,12 +176,16 @@ class PigentSessionService:
                     stored_status = "interrupted"
                 session = SessionState(
                     value["id"], normalize_mode(value["mode"]), value.get("approval_preference", "automatic"),
-                    value.get("model") or {}, value["execution_identity"], value.get("title"), stored_status,
+                    value.get("model") or {}, value.get("execution_identity") or {}, value.get("title"), stored_status,
                     value["created_at"], value["last_activity_at"], value.get("tasks_snapshot"), [],
-                    int(value.get("next_event_id", 1)), set(), False, False,
+                    int(value.get("next_event_id", 1)), set(), asyncio.Lock(), False, False,
                 )
                 session.active_document = value.get("active_document_path")
                 session.active_kernel_id = value.get("active_kernel_id")
+                session.run_id = value.get("run_id")
+                session.turn_id = value.get("turn_id")
+                session.accepted_messages = dict(value.get("accepted_messages") or {})
+                session.interactions = dict(value.get("interactions") or {})
                 event_path = self.events_dir / f"{session.id}.jsonl"
                 if event_path.exists():
                     session.events = [json.loads(line) for line in event_path.read_text(encoding="utf-8").splitlines()[-1000:] if line]
@@ -160,6 +207,7 @@ class PigentSessionService:
             )
         attached = await self.manager.command("create_session", session={
             **self.summary(session),
+            "execution_identity": session.execution_identity,
             "active_document": session.active_document,
             "tools": list(PIGENT_CATALOGS[session.mode]),
         })
@@ -230,7 +278,7 @@ class PigentSessionService:
             return
         session = self.sessions[session_id]
         event_type = str(event.get("type"))
-        payload = dict(event.get("payload") or {})
+        payload = _public_event_value(dict(event.get("payload") or {}))
         if event_type == "tasks.snapshot":
             session.tasks = payload.get("snapshot")
         elif event_type == "mode.changed":
@@ -258,27 +306,90 @@ class PigentSessionService:
             session.status = "failed"
             session.run_active = False
         elif event_type == "interaction.required":
+            interaction = payload.get("interaction") if isinstance(payload.get("interaction"), dict) else payload
+            interaction_id = interaction.get("interaction_id") if isinstance(interaction, dict) else None
+            if isinstance(interaction_id, str):
+                session.interactions[interaction_id] = {**interaction, "revision": int(payload.get("revision", 1)), "state": "pending", "decisions": {}}
             session.status = "waiting_for_user"
             session.run_active = True
         elif event_type == "interaction.resolved":
+            interaction_id = payload.get("interaction_id")
+            if isinstance(interaction_id, str) and interaction_id in session.interactions:
+                session.interactions[interaction_id]["state"] = "resolved"
             session.status = "active"
             session.run_active = True
         await self.emit(session, event_type, payload)
 
-    async def message(self, session: SessionState, body: MessageCreate) -> None:
-        command = "follow_up" if body.behavior == "follow_up" else "prompt"
-        await self._ensure_attached(session)
-        previous_status, previous_run_active = session.status, session.run_active
-        session.status = "active"
-        session.run_active = True
-        self._persist(session)
-        try:
-            await self.manager.command(command, session_id=session.id, text=body.content)
-        except Exception:
-            session.status, session.run_active = previous_status, previous_run_active
+    async def message(self, session: SessionState, body: MessageCreate) -> dict[str, Any]:
+        fingerprint = json.dumps({"content": body.content, "behavior": body.behavior}, ensure_ascii=False, sort_keys=True)
+        async with session.message_lock:
+            existing = session.accepted_messages.get(body.client_message_id)
+            if existing is not None:
+                if existing.get("fingerprint") != fingerprint:
+                    raise HTTPException(status_code=409, detail={"code": "invalid_request", "message": "client_message_id was reused with different content"})
+                return {key: existing[key] for key in ("accepted", "client_message_id", "run_id", "turn_id")}
+            if session.run_active and body.behavior != "follow_up":
+                raise HTTPException(status_code=409, detail={"code": "invalid_request", "message": "An active run accepts follow_up messages only"})
+            command = "follow_up" if body.behavior == "follow_up" else "prompt"
+            await self._ensure_attached(session)
+            previous_status, previous_run_active = session.status, session.run_active
+            run_id = session.run_id if body.behavior == "follow_up" and session.run_active else "run_" + uuid.uuid4().hex
+            turn_id = "turn_" + uuid.uuid4().hex
+            accepted = {"accepted": True, "client_message_id": body.client_message_id, "run_id": run_id, "turn_id": turn_id,
+                        "fingerprint": fingerprint, "state": "reserved"}
+            session.accepted_messages[body.client_message_id] = accepted
+            session.status = "active"
+            session.run_active = True
+            session.run_id = run_id
+            session.turn_id = turn_id
             self._persist(session)
-            raise
-        await self.emit(session, "session.updated", {"session": self.summary(session), "run_active": True})
+            try:
+                await self.manager.command(command, session_id=session.id, text=body.content,
+                                           client_message_id=body.client_message_id, run_id=run_id, turn_id=turn_id)
+            except Exception:
+                session.accepted_messages.pop(body.client_message_id, None)
+                session.status, session.run_active = previous_status, previous_run_active
+                self._persist(session)
+                raise
+            accepted["state"] = "accepted"
+            self._persist(session)
+            await self.emit(session, "session.updated", {"session": self.summary(session), "run_active": True,
+                                                           "client_message_id": body.client_message_id,
+                                                           "run_id": run_id, "turn_id": turn_id})
+            return {key: accepted[key] for key in ("accepted", "client_message_id", "run_id", "turn_id")}
+
+    async def resolve_interaction(self, interaction_id: str, body: InteractionDecision) -> dict[str, Any]:
+        session = next((item for item in self.sessions.values() if interaction_id in item.interactions), None)
+        if session is None:
+            raise HTTPException(status_code=404, detail="Interaction not found")
+        interaction = session.interactions[interaction_id]
+        decisions = interaction.setdefault("decisions", {})
+        existing = decisions.get(body.decision_id)
+        fingerprint = json.dumps({"action_id": body.action_id, "payload": body.payload}, sort_keys=True)
+        if existing:
+            if existing["fingerprint"] != fingerprint:
+                raise HTTPException(status_code=409, detail={"code": "invalid_request", "message": "decision_id conflict"})
+            return existing["receipt"]
+        if interaction.get("revision") != body.revision or interaction.get("state") != "pending":
+            raise HTTPException(status_code=409, detail={"code": "interaction_superseded", "message": "Interaction was superseded or already resolved"})
+        choices = interaction.get("choices") or []
+        if body.action_id not in choices:
+            raise HTTPException(status_code=400, detail={"code": "invalid_request", "message": "Action is not advertised"})
+        response = await self.manager.command("interaction_resolve", session_id=session.id, interaction_id=interaction_id,
+                                              revision=body.revision, decision_id=body.decision_id,
+                                              action_id=body.action_id, payload=body.payload)
+        receipt = response.get("receipt") if isinstance(response.get("receipt"), dict) else {
+            "outcome": "success", "summary": f"Interaction resolved: {body.action_id}",
+            "identifiers": {"interaction_id": interaction_id, "decision_id": body.decision_id}, "at": _now(),
+        }
+        decisions[body.decision_id] = {"fingerprint": fingerprint, "receipt": receipt}
+        interaction["state"] = "resolved"
+        session.status = "active"
+        public_interaction = {key: value for key, value in interaction.items() if key not in {"decisions", "state"}}
+        await self.emit(session, "interaction.resolved", {"interaction_id": interaction_id, "decision_id": body.decision_id,
+                                                           "action_id": body.action_id, "interaction": public_interaction,
+                                                           "revision": interaction.get("revision", body.revision), "receipt": receipt})
+        return receipt
 
     async def change_mode(self, session: SessionState, raw_mode: str) -> None:
         try:
@@ -361,6 +472,25 @@ class PigentSessionService:
     def replay(self, session: SessionState, after_event_id: int) -> list[dict[str, Any]]:
         return [event for event in session.events if event["event_id"] > after_event_id]
 
+    def history(self, session: SessionState, before_event_id: int | None, limit: int) -> list[dict[str, Any]]:
+        path = self.events_dir / f"{session.id}.jsonl"
+        if not path.exists():
+            return []
+        selected: list[dict[str, Any]] = []
+        with path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                if not line.strip():
+                    continue
+                event = json.loads(line)
+                event_id = event.get("event_id")
+                if not isinstance(event_id, int):
+                    continue
+                if before_event_id is None or event_id < before_event_id:
+                    selected.append(event)
+                    if len(selected) > limit:
+                        del selected[0]
+        return selected
+
 
 def create_public_router(service: PigentSessionService) -> APIRouter:
     router = APIRouter(prefix="/api/v1/pigent", tags=["pigent"])
@@ -370,8 +500,32 @@ def create_public_router(service: PigentSessionService) -> APIRouter:
         return service.summary(await service.create(body))
 
     @router.get("/sessions")
-    async def list_sessions() -> list[dict[str, Any]]:
-        return [service.summary(item) for item in service.sessions.values()]
+    async def list_sessions(workspace_id: str | None = None, query: str | None = None,
+                            before: str | None = None, limit: int = Query(default=50, ge=1, le=200)) -> list[dict[str, Any]]:
+        if workspace_id and workspace_id != service.project.workspace_id:
+            return []
+        items = sorted(service.sessions.values(), key=lambda item: item.last_activity_at, reverse=True)
+        if query:
+            needle = query.casefold()
+            items = [item for item in items if needle in (item.title or "").casefold()]
+        if before:
+            items = [item for item in items if item.last_activity_at < before]
+        return [service.summary(item) for item in items[:limit]]
+
+    @router.patch("/sessions/{session_id}")
+    async def patch_session(session_id: str, body: SessionPatch) -> dict[str, Any]:
+        session = service.get(session_id)
+        session.title = body.title.strip()
+        service._persist(session)
+        await service.emit(session, "session.updated", {"session": service.summary(session), "run_active": session.run_active})
+        return service.summary(session)
+
+    @router.get("/sessions/{session_id}/events")
+    async def session_events(session_id: str, before_event_id: int | None = Query(default=None, ge=1),
+                             limit: int = Query(default=100, ge=1, le=500)) -> dict[str, Any]:
+        events = service.history(service.get(session_id), before_event_id, limit)
+        return {"events": events, "has_more": bool(events and events[0]["event_id"] > 1),
+                "before_event_id": events[0]["event_id"] if events else before_event_id}
 
     @router.get("/sessions/{session_id}")
     async def get_session(session_id: str) -> dict[str, Any]:
@@ -380,6 +534,8 @@ def create_public_router(service: PigentSessionService) -> APIRouter:
     @router.delete("/sessions/{session_id}", status_code=204)
     async def delete_session(session_id: str) -> None:
         session = service.get(session_id)
+        if session.run_active or any(item.get("state") == "pending" for item in session.interactions.values()):
+            raise HTTPException(status_code=409, detail={"code": "invalid_request", "message": "Abort or resolve the active session before deletion"})
         try:
             await service.manager.command("delete_session", session_id=session_id)
         finally:
@@ -389,15 +545,22 @@ def create_public_router(service: PigentSessionService) -> APIRouter:
             (service.events_dir / f"{session_id}.jsonl").unlink(missing_ok=True)
 
     @router.post("/sessions/{session_id}/messages", status_code=202)
-    async def send_message(session_id: str, body: MessageCreate) -> dict[str, bool]:
-        await service.message(service.get(session_id), body)
-        return {"accepted": True}
+    async def send_message(session_id: str, body: MessageCreate) -> dict[str, Any]:
+        return await service.message(service.get(session_id), body)
 
     @router.post("/sessions/{session_id}/abort", status_code=202)
-    async def abort(session_id: str) -> dict[str, bool]:
+    async def abort(session_id: str, body: AbortRequest) -> dict[str, bool]:
         session = service.get(session_id)
-        await service.manager.command("abort", session_id=session.id)
-        return {"accepted": True}
+        if body.run_id and session.run_id and body.run_id != session.run_id:
+            raise HTTPException(status_code=409, detail={"code": "invalid_request", "message": "run_id does not match the active run"})
+        if not session.run_active:
+            return {"accepted": True, "already_settled": True}
+        await service.manager.command("abort", session_id=session.id, run_id=session.run_id, reason=body.reason)
+        return {"accepted": True, "already_settled": False}
+
+    @router.post("/interactions/{interaction_id}")
+    async def resolve_interaction(interaction_id: str, body: InteractionDecision) -> dict[str, Any]:
+        return {"receipt": await service.resolve_interaction(interaction_id, body)}
 
     @router.put("/sessions/{session_id}/mode")
     async def mode(session_id: str, body: ModeChange) -> dict[str, Any]:
@@ -425,10 +588,20 @@ def create_public_router(service: PigentSessionService) -> APIRouter:
     @router.get("/capabilities")
     async def capabilities() -> dict[str, Any]:
         model_state = service.config.ui_model_state()
-        return {"protocol_version": "0.1", "tools": list(PIGENT_CATALOGS["auto"]),
-                "modes": {key: list(value) for key, value in PIGENT_CATALOGS.items()},
-                "action_filters": PIGENT_ACTION_FILTERS, "capabilities": list(PIGENT_CAPABILITIES),
-                **model_state, "host": service.manager.status()}
+        host_status = service.manager.status()
+        try:
+            negotiated = await service.manager.negotiated_capabilities(start=True)
+        except Exception as error:
+            negotiated = {
+                "protocol_version": PIGENT_PROTOCOL_VERSION,
+                "tools": [],
+                "modes": {"ask": [], "plan": [], "auto": []},
+                "action_filters": {},
+                "capabilities": [],
+                "event_types": [],
+            }
+            host_status = {**host_status, "negotiation_error": str(error)}
+        return {**negotiated, **model_state, "host": host_status}
 
     @router.websocket("/sessions/{session_id}/stream")
     async def stream(websocket: WebSocket, session_id: str, after_event_id: int = Query(default=0, ge=0)) -> None:
@@ -442,12 +615,10 @@ def create_public_router(service: PigentSessionService) -> APIRouter:
                 snapshot = {"session": service.summary(session), "tasks": session.tasks,
                             "active_calls": [], "run_active": session.run_active,
                             "after_event_id": after_event_id}
-                cursor_event_id = session.next_event_id
-                session.next_event_id += 1
                 service._persist(session)
             for event in replay:
                 await websocket.send_json(event)
-            await websocket.send_json({"version": 1, "event_id": cursor_event_id,
+            await websocket.send_json({"version": 1, "event_id": None,
                                        "session_id": session.id, "type": "reconnect.cursor", "timestamp": _now(),
                                        "payload": snapshot})
             while True:

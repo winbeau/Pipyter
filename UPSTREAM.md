@@ -20,6 +20,12 @@ Pipyter product code is maintained outside `engines/`. The entire `engines/` tre
 - Plans: `docs/plans/pigent-v0.1/08-beaupi-first-party-embedding.md` and `docs/plans/pigent-v0.1/09-user-install-model-config.md`
 - User-state rule: do not inherit standalone `.beaupi`/`.pi` config; Pigent model/API configuration uses only Pipyter's `settings.json` and `auth.json`
 
+## tool-ui design reference
+
+- Local reference during v0.2 planning: `/tmp/tool-ui/` (ephemeral; not a build or runtime input)
+- Decision: the tracked files under `web/src/pigent/tool-ui/` are a clean internal reimplementation of the action/surface registry pattern. No tool-ui source file, package dependency, asset, or copyright header was copied into Pipyter.
+- Provenance consequence: no additional third-party license text is required for these implementation files; the directory name records the design influence only. Release/build verification must continue to work when `/tmp/tool-ui/` is absent.
+
 ## Source policy
 
 1. Keep Pipyter product behavior in tracked `src/`, `packages/`, `services/`, and `web/`.

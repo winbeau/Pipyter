@@ -1,0 +1,179 @@
+{
+  "name": "golden-v0.2-operations",
+  "description": "Deterministic v0.2 fixtures for optimistic message correlation, abort, interaction resolution, Kernel environments, accepted operations, progress and final receipts.",
+  "protocol_version": "0.2",
+  "message": {
+    "request": {
+      "client_message_id": "msg_client_01",
+      "content": "Create an isolated environment",
+      "behavior": "prompt"
+    },
+    "accepted": {
+      "accepted": true,
+      "client_message_id": "msg_client_01",
+      "run_id": "run_01",
+      "turn_id": "turn_01"
+    }
+  },
+  "abort": {
+    "request": {
+      "run_id": "run_01",
+      "reason": "user_stop"
+    },
+    "accepted": {
+      "accepted": true,
+      "already_settled": false
+    }
+  },
+  "interaction": {
+    "request": {
+      "revision": 3,
+      "decision_id": "decision_01",
+      "action_id": "allow_once",
+      "payload": {}
+    },
+    "receipt": {
+      "outcome": "success",
+      "summary": "Allowed once",
+      "identifiers": {
+        "interaction_id": "interaction_01",
+        "decision_id": "decision_01"
+      },
+      "at": "2025-01-01T00:00:01Z"
+    }
+  },
+  "environment": {
+    "id": "env_01",
+    "kind": "temporary",
+    "name": null,
+    "display_name": "Temporary Python 3.12",
+    "status": "provisioning",
+    "python_request": "3.12",
+    "python_version": null,
+    "interpreter": null,
+    "packages": ["pandas>=2"],
+    "source": null,
+    "lock_revision": null,
+    "revision": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "created_at": "2025-01-01T00:00:00Z",
+    "updated_at": "2025-01-01T00:00:00Z",
+    "last_used_at": null,
+    "expires_at": "2025-01-01T06:00:00Z",
+    "active_kernel_ids": [],
+    "last_error": null
+  },
+  "operation_events": [
+    {
+      "version": 1,
+      "event_id": 10,
+      "session_id": "pigent_sess_01",
+      "type": "operation.started",
+      "timestamp": "2025-01-01T00:00:00Z",
+      "payload": {
+        "operation": {
+          "operation_id": "op_01",
+          "kind": "kernel_environment.provision",
+          "state": "running",
+          "progress": {
+            "phase": "create_venv",
+            "completed": 0,
+            "total": null,
+            "message": "Creating Python environment"
+          },
+          "resource": {
+            "type": "kernel_environment",
+            "id": "env_01"
+          },
+          "created_at": "2025-01-01T00:00:00Z",
+          "updated_at": "2025-01-01T00:00:00Z",
+          "session_id": "pigent_sess_01",
+          "tool_call_id": "call_kernel_01",
+          "cancellable": true,
+          "receipt": null,
+          "error": null
+        }
+      }
+    },
+    {
+      "version": 1,
+      "event_id": 11,
+      "session_id": "pigent_sess_01",
+      "type": "operation.updated",
+      "timestamp": "2025-01-01T00:00:01Z",
+      "payload": {
+        "operation": {
+          "operation_id": "op_01",
+          "kind": "kernel_environment.provision",
+          "state": "running",
+          "progress": {
+            "phase": "install_packages",
+            "completed": 1,
+            "total": 2,
+            "message": "Installing ipykernel and requested packages"
+          },
+          "resource": {
+            "type": "kernel_environment",
+            "id": "env_01"
+          },
+          "created_at": "2025-01-01T00:00:00Z",
+          "updated_at": "2025-01-01T00:00:01Z",
+          "session_id": "pigent_sess_01",
+          "tool_call_id": "call_kernel_01",
+          "cancellable": true,
+          "receipt": null,
+          "error": null
+        }
+      }
+    },
+    {
+      "version": 1,
+      "event_id": 12,
+      "session_id": "pigent_sess_01",
+      "type": "operation.ended",
+      "timestamp": "2025-01-01T00:00:02Z",
+      "payload": {
+        "operation": {
+          "operation_id": "op_01",
+          "kind": "kernel_environment.provision",
+          "state": "succeeded",
+          "progress": {
+            "phase": "complete",
+            "completed": 2,
+            "total": 2,
+            "message": "Environment ready"
+          },
+          "resource": {
+            "type": "kernel_environment",
+            "id": "env_01"
+          },
+          "created_at": "2025-01-01T00:00:00Z",
+          "updated_at": "2025-01-01T00:00:02Z",
+          "session_id": "pigent_sess_01",
+          "tool_call_id": "call_kernel_01",
+          "cancellable": false,
+          "receipt": {
+            "outcome": "success",
+            "summary": "Created temporary Python environment",
+            "identifiers": {
+              "environment_id": "env_01",
+              "revision": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "at": "2025-01-01T00:00:02Z"
+          },
+          "error": null
+        }
+      }
+    }
+  ],
+  "reconnect_cursor": {
+    "version": 1,
+    "event_id": null,
+    "session_id": "pigent_sess_01",
+    "type": "reconnect.cursor",
+    "timestamp": "2025-01-01T00:00:03Z",
+    "payload": {
+      "after_event_id": 12,
+      "run_active": false
+    }
+  }
+}

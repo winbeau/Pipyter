@@ -30,6 +30,14 @@ def revision_path(path: Path) -> str:
     return revision_bytes(path.read_bytes())
 
 
+def public_path(workspace: Path, path: Path) -> str:
+    try:
+        relative = path.relative_to(workspace)
+        return relative.as_posix() or "."
+    except ValueError:
+        return path.name
+
+
 def resolve_target(workspace: Path, value: str | os.PathLike[str] | None, *, default: str = ".") -> Path:
     raw = default if value is None else os.fspath(value)
     if not isinstance(raw, str) or not raw or "\x00" in raw:
@@ -82,6 +90,7 @@ class FileToolService:
     async def read(self, arguments: dict[str, Any]):
         path = resolve_target(self.workspace, arguments.get("path"))
         try:
+            display_path = public_path(self.workspace, path)
             if path.is_dir():
                 depth = max(1, min(int(arguments.get("depth", 1)), DIRECTORY_MAX_DEPTH))
                 limit = max(1, min(int(arguments.get("limit", 200)), 1_000))
@@ -94,23 +103,23 @@ class FileToolService:
                         continue
                     stat = item.stat()
                     entries.append({
-                        "path": str(item), "name": item.name, "kind": file_kind(item),
+                        "path": public_path(self.workspace, item), "name": item.name, "kind": file_kind(item),
                         "size": None if item.is_dir() else stat.st_size, "modified": stat.st_mtime,
                     })
                     if len(entries) >= limit:
                         break
                 return success(
-                    f"Listed {path}",
-                    data={"path": str(path), "entries": entries, "truncated": len(entries) >= limit, "limit": limit},
+                    f"Listed {display_path}",
+                    data={"path": display_path, "entries": entries, "truncated": len(entries) >= limit, "limit": limit},
                 )
             if not path.is_file():
                 raise FileNotFoundError(path)
             media = _media_type(path)
             if media in IMAGE_MIMES or media.startswith("image/"):
-                raise ToolFailure("unsupported_media", f"{path} is visual media; use view")
+                raise ToolFailure("unsupported_media", f"{display_path} is visual media; use view")
             raw = path.read_bytes()
             if b"\x00" in raw[:8192]:
-                raise ToolFailure("unsupported_media", f"{path} appears binary; use view or download")
+                raise ToolFailure("unsupported_media", f"{display_path} appears binary; use view or download")
             text = raw.decode("utf-8")
             offset = max(1, int(arguments.get("offset", 1)))
             limit = max(1, min(int(arguments.get("limit", 400)), READ_MAX_LINES))
@@ -122,8 +131,8 @@ class FileToolService:
                 selected = encoded[:READ_MAX_BYTES].decode("utf-8", errors="ignore")
             truncated = offset - 1 + limit < len(lines) or byte_truncated
             return success(
-                f"Read {path}",
-                data={"path": str(path), "content": selected, "offset": offset, "line_count": len(lines),
+                f"Read {display_path}",
+                data={"path": display_path, "content": selected, "offset": offset, "line_count": len(lines),
                       "truncated": truncated, "next_offset": offset + selected.count("\n") if truncated else None,
                       "revision": revision_bytes(raw), "media_type": media},
             )
@@ -151,7 +160,8 @@ class FileToolService:
             if len(raw) > 8 * 1024 * 1024:
                 raise ToolFailure("too_large", "Image exceeds the 8 MiB view limit")
             data_url = f"data:{mime};base64,{base64.b64encode(raw).decode('ascii')}"
-            return success(f"Viewed {path}", data={"source": {"kind": "file", "path": str(path)},
+            display_path = public_path(self.workspace, path)
+            return success(f"Viewed {display_path}", data={"source": {"kind": "file", "path": display_path},
                                                         "media_type": mime, "data_url": data_url,
                                                         "size": len(raw), "hash": revision_bytes(raw)})
         except BaseException as error:
@@ -221,9 +231,10 @@ class FileToolService:
                 path.parent.mkdir(parents=True, exist_ok=True)
                 atomic_write_bytes(path, new_raw)
                 after = revision_bytes(new_raw)
+                display_path = public_path(self.workspace, path)
                 diff = "".join(difflib.unified_diff(old_text.splitlines(True), new_text.splitlines(True),
-                                                     fromfile=str(path), tofile=str(path)))
-                return success(f"{verb} {path}", data={"path": str(path), "bytes_written": len(new_raw), "diff": diff},
+                                                     fromfile=display_path, tofile=display_path))
+                return success(f"{verb} {display_path}", data={"path": display_path, "bytes_written": len(new_raw), "diff": diff},
                                before=before, after=after)
             except BaseException as error:
                 raise _translate_os(error, path) from error
@@ -279,7 +290,7 @@ class BashToolService:
             combined = combined[-BASH_MAX_OUTPUT:]
         return success(
             f"Command exited with code {process.returncode}",
-            data={"command": command, "cwd": str(cwd), "exit_code": process.returncode,
+            data={"command": command, "cwd": public_path(self.workspace, cwd), "exit_code": process.returncode,
                   "stdout": stdout[-BASH_MAX_OUTPUT:].decode("utf-8", errors="replace"),
                   "stderr": stderr[-BASH_MAX_OUTPUT:].decode("utf-8", errors="replace"),
                   "output_tail": combined.decode("utf-8", errors="replace"), "truncated": truncated},

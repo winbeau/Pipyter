@@ -1,12 +1,18 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://pipyter.icthub.top/schemas/pigent-session.schema.json",
-  "title": "Pigent session, tasks, terminal and artifact contracts",
+  "title": "Pigent v0.2 session, tasks, terminal, artifact and correlation contracts",
   "description": "Frozen v0.1 session/tasks/terminal/artifact contracts shared by the Python runtime, Node host and browser (docs/plans/pigent-v0.1/03-modes-permissions.md, 04-runtime-bridge.md, 07-pigent-shell-ui-migration.md).",
   "definitions": {
     "sessionStatus": {
       "type": "string",
-      "enum": ["active", "completed", "failed", "interrupted", "waiting_for_user"],
+      "enum": [
+        "active",
+        "completed",
+        "failed",
+        "interrupted",
+        "waiting_for_user"
+      ],
       "description": "Lifecycle states surfaced in the Pigent session list and Workspace panel."
     },
     "pigentSession": {
@@ -14,126 +20,531 @@
       "description": "Public/registry Pigent session record. Conversation content stays runtime-local under <workspace>/.pipyter/pigent/.",
       "additionalProperties": false,
       "required": [
-        "id", "account_id", "project_id", "workspace_id", "node_id", "mode",
-        "approval_preference", "execution_identity", "status", "created_at", "last_activity_at"
+        "id",
+        "account_id",
+        "project_id",
+        "workspace_id",
+        "node_id",
+        "mode",
+        "approval_preference",
+        "status",
+        "created_at",
+        "last_activity_at"
       ],
       "properties": {
-        "id": { "type": "string", "pattern": "^pigent_[A-Za-z0-9_-]+$" },
-        "account_id": { "type": "string" },
-        "project_id": { "type": "string" },
-        "workspace_id": { "type": "string" },
-        "node_id": { "type": "string" },
-        "mode": { "$ref": "pigent-modes.schema.json#/definitions/mode" },
-        "approval_preference": { "type": "string", "enum": ["automatic", "review_all"], "default": "automatic" },
-        "execution_identity": { "$ref": "pigent-modes.schema.json#/definitions/executionIdentity" },
-        "status": { "$ref": "#/definitions/sessionStatus" },
-        "title": { "type": "string" },
-        "created_at": { "type": "string", "format": "date-time" },
-        "last_activity_at": { "type": "string", "format": "date-time" },
-        "active_document": { "$ref": "pigent-tools.schema.json#/definitions/toolRequestContext/properties/active_document" },
-        "active_kernel_id": { "type": "string" },
+        "id": {
+          "type": "string",
+          "pattern": "^pigent_[A-Za-z0-9_-]+$"
+        },
+        "account_id": {
+          "type": "string"
+        },
+        "project_id": {
+          "type": "string"
+        },
+        "workspace_id": {
+          "type": "string"
+        },
+        "node_id": {
+          "type": "string"
+        },
+        "mode": {
+          "$ref": "pigent-modes.schema.json#/definitions/mode"
+        },
+        "approval_preference": {
+          "type": "string",
+          "enum": [
+            "automatic",
+            "review_all"
+          ],
+          "default": "automatic"
+        },
+        "status": {
+          "$ref": "#/definitions/sessionStatus"
+        },
+        "title": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "last_activity_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "active_document": {
+          "$ref": "pigent-tools.schema.json#/definitions/toolRequestContext/properties/active_document"
+        },
+        "active_kernel_id": {
+          "type": "string"
+        },
         "model": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["provider", "model"],
+          "required": [
+            "provider",
+            "model"
+          ],
           "properties": {
-            "provider": { "type": "string" },
-            "model": { "type": "string" }
+            "provider": {
+              "type": "string"
+            },
+            "model": {
+              "type": "string"
+            }
           },
           "description": "Resolved model snapshot for audit/reconnect; never a configuration source."
         },
-        "tasks_snapshot": { "$ref": "#/definitions/tasksSnapshot" }
+        "tasks_snapshot": {
+          "$ref": "#/definitions/tasksSnapshot"
+        },
+        "run_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "turn_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
       }
     },
     "taskNode": {
       "type": "object",
       "description": "One node of the Dynamic Task tree. Only the Coordinator can add/remove/rename/reorder/reopen or change dependencies.",
       "additionalProperties": false,
-      "required": ["id", "title", "status"],
+      "required": [
+        "id",
+        "title",
+        "status"
+      ],
       "properties": {
-        "id": { "type": "string", "minLength": 1 },
-        "title": { "type": "string", "minLength": 1 },
-        "status": { "$ref": "pigent-tools.schema.json#/definitions/taskStatus" },
-        "depends_on": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
-        "completion_criteria": { "type": "array", "items": { "type": "string" } },
-        "children": { "type": "array", "items": { "$ref": "#/definitions/taskNode" } }
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "$ref": "pigent-tools.schema.json#/definitions/taskStatus"
+        },
+        "depends_on": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "completion_criteria": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/taskNode"
+          }
+        }
       }
     },
     "tasksSnapshot": {
       "type": "object",
       "description": "Compare-and-swap Tasks snapshot. Revision must be carried on every replace/patch.",
       "additionalProperties": false,
-      "required": ["revision", "root"],
+      "required": [
+        "revision",
+        "root"
+      ],
       "properties": {
-        "revision": { "type": "string", "minLength": 1 },
-        "root": { "$ref": "#/definitions/taskNode" },
-        "updated_at": { "type": "string", "format": "date-time" }
+        "revision": {
+          "type": "string",
+          "minLength": 1
+        },
+        "root": {
+          "$ref": "#/definitions/taskNode"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        }
       }
     },
     "terminalSession": {
       "type": "object",
       "description": "A persistent human Shell/PTY session. Each tab is a real process/session; never one shared command buffer.",
       "additionalProperties": false,
-      "required": ["id", "name", "executable", "cwd", "status", "cols", "rows", "created_at"],
+      "required": [
+        "id",
+        "name",
+        "executable",
+        "cwd",
+        "status",
+        "cols",
+        "rows",
+        "created_at"
+      ],
       "properties": {
-        "id": { "type": "string", "pattern": "^shell_[A-Za-z0-9_-]+$" },
-        "name": { "type": "string" },
-        "executable": { "type": "string" },
-        "cwd": { "type": "string" },
-        "status": { "type": "string", "enum": ["running", "exited", "closed"] },
-        "cols": { "type": "integer", "minimum": 2, "maximum": 500 },
-        "rows": { "type": "integer", "minimum": 1, "maximum": 500 },
-        "created_at": { "type": "string", "format": "date-time" },
-        "last_exit_code": { "type": ["integer", "null"] }
+        "id": {
+          "type": "string",
+          "pattern": "^shell_[A-Za-z0-9_-]+$"
+        },
+        "name": {
+          "type": "string"
+        },
+        "executable": {
+          "type": "string"
+        },
+        "cwd": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "running",
+            "exited",
+            "closed"
+          ]
+        },
+        "cols": {
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 500
+        },
+        "rows": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 500
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "last_exit_code": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
       }
     },
     "artifactKind": {
       "type": "string",
-      "enum": ["image", "table", "text", "file"]
+      "enum": [
+        "image",
+        "table",
+        "text",
+        "file"
+      ]
     },
     "artifactRef": {
       "type": "object",
       "description": "Bounded runtime outputs stored outside normal model context under <workspace>/.pipyter/pigent/artifacts/. IDs are unguessable and scoped to workspace/session authorization.",
       "additionalProperties": false,
-      "required": ["id", "kind", "mime", "size", "created_at", "hash"],
+      "required": [
+        "id",
+        "kind",
+        "mime",
+        "size",
+        "created_at",
+        "hash"
+      ],
       "properties": {
-        "id": { "type": "string", "pattern": "^figure_[A-Za-z0-9]+$|^artifact_[A-Za-z0-9_-]+$" },
-        "kind": { "$ref": "#/definitions/artifactKind" },
-        "mime": { "type": "string" },
-        "size": { "type": "integer", "minimum": 0 },
-        "created_at": { "type": "string", "format": "date-time" },
-        "hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
-        "width": { "type": "integer", "minimum": 0 },
-        "height": { "type": "integer", "minimum": 0 },
-        "expires_at": { "type": "string", "format": "date-time" }
+        "id": {
+          "type": "string",
+          "pattern": "^figure_[A-Za-z0-9]+$|^artifact_[A-Za-z0-9_-]+$"
+        },
+        "kind": {
+          "$ref": "#/definitions/artifactKind"
+        },
+        "mime": {
+          "type": "string"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "expires_at": {
+          "type": "string",
+          "format": "date-time"
+        }
       }
     },
     "workspaceContext": {
       "type": "object",
       "description": "Active workspace context published by the browser/runtime independently of prompts. Validated by Pipyter; never retargets an already-authorized mutation.",
       "additionalProperties": false,
-      "required": ["type", "active_document"],
+      "required": [
+        "type",
+        "active_document"
+      ],
       "properties": {
-        "type": { "const": "workspace.context" },
-        "active_document": { "type": "string" },
-        "document_revision": { "$ref": "pigent-tools.schema.json#/definitions/revision" },
-        "active_cell_id": { "type": "string" },
-        "selection": { "type": ["string", "null"] },
-        "active_kernel_id": { "type": "string" },
-        "selected_figure_id": { "type": ["string", "null"] }
+        "type": {
+          "const": "workspace.context"
+        },
+        "active_document": {
+          "type": "string"
+        },
+        "document_revision": {
+          "$ref": "pigent-tools.schema.json#/definitions/revision"
+        },
+        "active_cell_id": {
+          "type": "string"
+        },
+        "selection": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "active_kernel_id": {
+          "type": "string"
+        },
+        "selected_figure_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "messageSubmission": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "client_message_id",
+        "content",
+        "behavior"
+      ],
+      "properties": {
+        "client_message_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "content": {
+          "type": "string",
+          "minLength": 1
+        },
+        "behavior": {
+          "type": "string",
+          "enum": [
+            "prompt",
+            "follow_up"
+          ]
+        }
+      }
+    },
+    "messageAccepted": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "accepted",
+        "client_message_id",
+        "run_id",
+        "turn_id"
+      ],
+      "properties": {
+        "accepted": {
+          "const": true
+        },
+        "client_message_id": {
+          "type": "string"
+        },
+        "run_id": {
+          "type": "string"
+        },
+        "turn_id": {
+          "type": "string"
+        }
+      }
+    },
+    "environmentSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "display_name",
+        "status",
+        "python_request",
+        "revision",
+        "created_at",
+        "updated_at"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "temporary",
+            "maintained"
+          ]
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "display_name": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "provisioning",
+            "ready",
+            "stale",
+            "syncing",
+            "error",
+            "deleting",
+            "missing"
+          ]
+        },
+        "python_request": {
+          "type": "string"
+        },
+        "python_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "interpreter": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "packages": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "source": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true
+        },
+        "lock_revision": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "revision": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "last_used_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "expires_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "active_kernel_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "last_error": {
+          "anyOf": [
+            {
+              "$ref": "pigent-tools.schema.json#/definitions/toolError"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
       }
     }
   },
   "type": "object",
   "additionalProperties": false,
-  "required": ["protocolVersion", "sessionStatuses", "artifactKinds", "delegateProfiles"],
+  "required": [
+    "protocolVersion",
+    "sessionStatuses",
+    "artifactKinds",
+    "delegateProfiles"
+  ],
   "properties": {
-    "protocolVersion": { "const": "0.1" },
-    "sessionStatuses": { "type": "array", "items": { "$ref": "#/definitions/sessionStatus" }, "uniqueItems": true, "minItems": 5, "maxItems": 5 },
-    "artifactKinds": { "type": "array", "items": { "$ref": "#/definitions/artifactKind" }, "uniqueItems": true, "minItems": 4, "maxItems": 4 },
+    "protocolVersion": {
+      "const": "0.2"
+    },
+    "sessionStatuses": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/sessionStatus"
+      },
+      "uniqueItems": true,
+      "minItems": 5,
+      "maxItems": 5
+    },
+    "artifactKinds": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/artifactKind"
+      },
+      "uniqueItems": true,
+      "minItems": 4,
+      "maxItems": 4
+    },
     "delegateProfiles": {
       "type": "array",
-      "items": { "type": "string", "enum": ["analysis", "research", "review", "implementation"] },
+      "items": {
+        "type": "string",
+        "enum": [
+          "analysis",
+          "research",
+          "review",
+          "implementation"
+        ]
+      },
       "uniqueItems": true,
       "minItems": 4,
       "maxItems": 4,

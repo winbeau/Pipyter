@@ -21,7 +21,7 @@ class RuntimeState:
     status: str = "stopped"
     pigent_pid: int | None = None
     pigent_status: str = "stopped"
-    pigent_protocol_version: str = "0.1"
+    pigent_protocol_version: str = "0.2"
     pigent_runtime_version: str | None = None
     pigent_started_at: float = 0.0
     pigent_restart_count: int = 0

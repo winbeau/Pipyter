@@ -55,14 +55,28 @@ class NotebookDocument(BaseModel):
 
 
 class KernelStartRequest(BaseModel):
-    kernel_name: str = "python3"
+    kernel_name: str | None = "python3"
+    environment_id: str | None = None
+    notebook_path: str | None = None
+
+    def model_post_init(self, _context: Any) -> None:
+        if self.environment_id and self.kernel_name not in {None, "", "python3"}:
+            raise ValueError("Select exactly one of environment_id or kernel_name")
 
 
 class KernelSummary(BaseModel):
     id: str
     name: str
-    status: str
+    status: Literal["starting", "idle", "busy", "restarting", "dead", "stopping"]
     execution_count: int = 0
+    environment_id: str | None = None
+    notebook_path: str | None = None
+    language: str = "python"
+    generation: int = 1
+    queue_depth: int = 0
+    started_at: str | None = None
+    last_activity_at: str | None = None
+    last_error: str | None = None
 
 
 class KernelSpecSummary(BaseModel):
@@ -90,6 +104,8 @@ class ExecuteResponse(BaseModel):
     execution_count: int
     status: str
     outputs: list[KernelOutput]
+    generation: int = 1
+    partial: bool = False
 
 
 class TerminalExecuteRequest(BaseModel):

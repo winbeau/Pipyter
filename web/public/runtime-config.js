@@ -6,7 +6,7 @@ window.__PIPYTER_CONFIG__ = window.__PIPYTER_CONFIG__ || {
       id: 'local',
       name: 'Local Runtime',
       apiBase: '',
-      allowDemo: true,
+      allowDemo: false,
       workspaces: [{ id: 'current', name: 'Current workspace' }],
     },
   ],

@@ -1,4 +1,4 @@
-"""Frozen Pigent v0.1 protocol models.
+"""Pigent v0.2 protocol models.
 
 Mirror of ``packages/protocol/src/pigent.ts`` and the authoritative JSON
 Schemas in ``packages/protocol/schemas/pigent-*.schema.json`` (the schemas are
@@ -13,7 +13,7 @@ from typing import Annotated, Any, Literal, TypeAlias
 
 from pydantic import BaseModel, Field, StringConstraints
 
-PIGENT_PROTOCOL_VERSION = "0.1"
+PIGENT_PROTOCOL_VERSION = "0.2"
 
 # ---------------------------------------------------------------------------
 # Enums (keep in sync with the JSON schemas and pigent.ts)
@@ -51,13 +51,32 @@ PigentErrorCode: TypeAlias = Literal[
     "kernel_dead",
     "model_configuration_required",
     "service_unavailable",
+    "payload_missing",
+    "payload_stale",
+    "uv_missing",
+    "uv_incompatible",
+    "config_migration_conflict",
+    "config_migration_invalid_source",
+    "kernel_environment_not_found",
+    "kernel_environment_conflict",
+    "kernel_environment_busy",
+    "kernel_environment_stale",
+    "kernel_environment_provision_failed",
+    "kernel_environment_sync_failed",
+    "kernel_queue_cancelled",
+    "operation_not_cancellable",
+    "interaction_superseded",
 ]
 PIGENT_ERROR_CODES: tuple[PigentErrorCode, ...] = (
     "invalid_request", "invalid_path", "permission_denied", "not_found", "unsupported_media",
     "too_large", "revision_conflict", "mode_denied", "confirmation_required",
     "kernel_unavailable", "kernel_busy", "execution_timeout", "cancelled", "internal_error",
     "document_dirty", "output_persist_conflict", "kernel_dead",
-    "model_configuration_required", "service_unavailable",
+    "model_configuration_required", "service_unavailable", "payload_missing", "payload_stale",
+    "uv_missing", "uv_incompatible", "config_migration_conflict", "config_migration_invalid_source",
+    "kernel_environment_not_found", "kernel_environment_conflict", "kernel_environment_busy",
+    "kernel_environment_stale", "kernel_environment_provision_failed", "kernel_environment_sync_failed",
+    "kernel_queue_cancelled", "operation_not_cancellable", "interaction_superseded",
 )
 
 PigentEventType: TypeAlias = Literal[
@@ -65,14 +84,16 @@ PigentEventType: TypeAlias = Literal[
     "tool.start", "tool.update", "tool.end", "tasks.snapshot", "delegate.start",
     "delegate.update", "delegate.end", "interaction.required", "interaction.resolved",
     "context.updated", "kernel.updated", "artifact.created", "error", "aborted", "settled",
-    "reconnect.cursor",
+    "reconnect.cursor", "operation.started", "operation.updated", "operation.ended",
+    "kernel.environment.updated",
 ]
 PIGENT_EVENT_TYPES: tuple[PigentEventType, ...] = (
     "session.created", "session.updated", "mode.changed", "assistant.text", "assistant.thinking",
     "tool.start", "tool.update", "tool.end", "tasks.snapshot", "delegate.start",
     "delegate.update", "delegate.end", "interaction.required", "interaction.resolved",
     "context.updated", "kernel.updated", "artifact.created", "error", "aborted", "settled",
-    "reconnect.cursor",
+    "reconnect.cursor", "operation.started", "operation.updated", "operation.ended",
+    "kernel.environment.updated",
 )
 
 PigentTaskStatus: TypeAlias = Literal["pending", "running", "done", "blocked", "failed"]
@@ -95,13 +116,13 @@ PigentCapability: TypeAlias = Literal[
     "filesystem.read", "filesystem.write", "visual.read", "notebook.read", "notebook.write",
     "kernel.status", "kernel.inspect", "kernel.execute", "process.execute",
     "process.interactive", "network", "system.execute", "tasks.write", "delegate.read",
-    "delegate.write",
+    "delegate.write", "kernel.environment.read", "kernel.environment.manage",
 ]
 PIGENT_CAPABILITIES: tuple[PigentCapability, ...] = (
     "filesystem.read", "filesystem.write", "visual.read", "notebook.read", "notebook.write",
     "kernel.status", "kernel.inspect", "kernel.execute", "process.execute",
     "process.interactive", "network", "system.execute", "tasks.write", "delegate.read",
-    "delegate.write",
+    "delegate.write", "kernel.environment.read", "kernel.environment.manage",
 )
 
 CapabilityLevel: TypeAlias = Literal["allow", "deny", "os", "interactive"]
@@ -110,7 +131,12 @@ NOTBOOK_ACTIONS: tuple[str, ...] = (
     "read_cell", "update_cell", "insert_cell", "delete_cell", "move_cell", "run_cell",
     "add_markdown", "clear_output",
 )
-KERNEL_ACTIONS: tuple[str, ...] = ("status", "execute", "interrupt", "restart", "shutdown")
+KERNEL_READ_ACTIONS: tuple[str, ...] = ("status", "list_environments", "operation_status")
+KERNEL_ACTIONS: tuple[str, ...] = (
+    "status", "execute", "interrupt", "restart", "shutdown", "list_environments", "operation_status",
+    "create_temporary", "create_maintained", "sync_environment", "start_environment",
+    "promote_environment", "delete_environment",
+)
 INSPECT_ACTIONS: tuple[str, ...] = ("variables", "variable", "dataframe", "figure", "object")
 TASKS_ACTIONS: tuple[str, ...] = ("get", "replace", "patch")
 
@@ -123,6 +149,7 @@ PIGENT_MODE_MATRIX: dict[PigentCapability, dict[PigentMode, CapabilityLevel]] = 
     "notebook.read": {"ask": "allow", "plan": "allow", "auto": "os"},
     "kernel.status": {"ask": "allow", "plan": "allow", "auto": "os"},
     "kernel.inspect": {"ask": "allow", "plan": "allow", "auto": "os"},
+    "kernel.environment.read": {"ask": "allow", "plan": "allow", "auto": "allow"},
     "tasks.write": {"ask": "deny", "plan": "allow", "auto": "allow"},
     "delegate.read": {"ask": "allow", "plan": "allow", "auto": "allow"},
     "filesystem.write": {"ask": "deny", "plan": "deny", "auto": "os"},
@@ -133,6 +160,7 @@ PIGENT_MODE_MATRIX: dict[PigentCapability, dict[PigentMode, CapabilityLevel]] = 
     "network": {"ask": "deny", "plan": "deny", "auto": "os"},
     "system.execute": {"ask": "deny", "plan": "deny", "auto": "interactive"},
     "delegate.write": {"ask": "deny", "plan": "deny", "auto": "allow"},
+    "kernel.environment.manage": {"ask": "deny", "plan": "deny", "auto": "os"},
 }
 
 # Projected tool catalogs by mode.
@@ -150,8 +178,8 @@ PIGENT_ACTION_FILTERS: dict[str, dict[PigentMode, tuple[str, ...]]] = {
         "auto": NOTBOOK_ACTIONS,
     },
     "kernel": {
-        "ask": ("status",),
-        "plan": ("status",),
+        "ask": KERNEL_READ_ACTIONS,
+        "plan": KERNEL_READ_ACTIONS,
         "auto": KERNEL_ACTIONS,
     },
     "inspect": {
@@ -272,13 +300,74 @@ class PigentToolResult(BaseModel):
 class PigentToolContext(BaseModel):
     """Trusted context injected by the Pigent host; the model never overrides it."""
 
-    protocol_version: Literal["0.1"] = "0.1"
+    protocol_version: Literal["0.2"] = "0.2"
     tool_call_id: str
     session_id: str
     workspace_id: str
     mode: PigentMode
     active_document: dict[str, str] | None = None
     active_kernel_id: str | None = None
+
+
+OperationState: TypeAlias = Literal["queued", "running", "waiting_for_user", "succeeded", "failed", "cancelled"]
+OperationOutcome: TypeAlias = Literal["success", "partial", "failed", "cancelled", "superseded"]
+KernelEnvironmentKind: TypeAlias = Literal["temporary", "maintained"]
+KernelEnvironmentStatus: TypeAlias = Literal["provisioning", "ready", "stale", "syncing", "error", "deleting", "missing"]
+
+
+class OperationProgress(BaseModel):
+    phase: str
+    completed: int = Field(default=0, ge=0)
+    total: int | None = Field(default=None, ge=0)
+    message: str = ""
+
+
+class ToolReceipt(BaseModel):
+    outcome: OperationOutcome
+    summary: str
+    identifiers: dict[str, str] = Field(default_factory=dict)
+    at: str
+
+
+class OperationResource(BaseModel):
+    type: Literal["kernel_environment"]
+    id: str
+
+
+class OperationEnvelope(BaseModel):
+    operation_id: str
+    kind: str
+    state: OperationState
+    progress: OperationProgress | None = None
+    resource: OperationResource
+    created_at: str
+    updated_at: str
+    session_id: str | None = None
+    tool_call_id: str | None = None
+    cancellable: bool = True
+    receipt: ToolReceipt | None = None
+    error: PigentToolError | None = None
+
+
+class KernelEnvironmentSummary(BaseModel):
+    id: str
+    kind: KernelEnvironmentKind
+    name: str | None = None
+    display_name: str
+    status: KernelEnvironmentStatus
+    python_request: str
+    python_version: str | None = None
+    interpreter: str | None = None
+    packages: list[str] = Field(default_factory=list)
+    source: dict[str, Any] | None = None
+    lock_revision: str | None = None
+    revision: str
+    created_at: str
+    updated_at: str
+    last_used_at: str | None = None
+    expires_at: str | None = None
+    active_kernel_ids: list[str] = Field(default_factory=list)
+    last_error: PigentToolError | None = None
 
 
 class ExecutionIdentity(BaseModel):
@@ -320,7 +409,6 @@ class PigentSession(BaseModel):
     node_id: str
     mode: PigentMode
     approval_preference: Literal["automatic", "review_all"] = "automatic"
-    execution_identity: ExecutionIdentity
     status: PigentSessionStatus
     title: str | None = None
     created_at: str
@@ -362,10 +450,10 @@ class PigentInteraction(BaseModel):
 
 
 class PigentEvent(BaseModel):
-    """Public browser event; event_id is monotonically increasing per session."""
+    """Public browser event; reconnect.cursor has no business event ID."""
 
     version: Literal[1] = 1
-    event_id: int = Field(ge=1)
+    event_id: int | None = Field(default=None, ge=1)
     session_id: str
     type: PigentEventType
     timestamp: str

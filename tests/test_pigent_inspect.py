@@ -37,6 +37,9 @@ class InspectKernels:
             text = "ran\n"
         return ExecuteResponse(kernel_id=kernel_id, execution_count=self.execution_count, status="idle",
                                outputs=[KernelOutput(type="stream", name="stdout", text=text)])
+    async def execute_async(self, kernel_id, code, timeout, *, store_history=True):
+        return await asyncio.to_thread(self.execute, kernel_id, code, timeout)
+
 
 
 def run(coro):

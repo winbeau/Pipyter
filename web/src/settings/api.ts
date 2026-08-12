@@ -12,8 +12,7 @@ export type PigentConfigResponse = {
   settings_revision: string
   auth_revision: string
   providers: PigentProviderSummary[]
-  settings_path: string
-  auth_path: string
+  config_files: string[]
 }
 
 export function createSettingsApi(apiBase: string) {

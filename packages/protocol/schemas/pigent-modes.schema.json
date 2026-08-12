@@ -1,12 +1,16 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://pipyter.icthub.top/schemas/pigent-modes.schema.json",
-  "title": "Pigent modes: Ask, Plan, Auto",
+  "title": "Pigent v0.2 modes: Ask, Plan, Auto",
   "description": "Frozen Ask/Plan/Auto mode contract and legacy pilot->auto migration (docs/plans/pigent-v0.1/03-modes-permissions.md). Pilot is rejected by every new schema; legacy state maps to auto exactly once.",
   "definitions": {
     "mode": {
       "type": "string",
-      "enum": ["ask", "plan", "auto"],
+      "enum": [
+        "ask",
+        "plan",
+        "auto"
+      ],
       "description": "Session state selected by the user/host. There is no pilot and no requested/effective split. A model or tool argument can never change the trusted session mode."
     },
     "capability": {
@@ -26,12 +30,19 @@
         "system.execute",
         "tasks.write",
         "delegate.read",
-        "delegate.write"
+        "delegate.write",
+        "kernel.environment.read",
+        "kernel.environment.manage"
       ]
     },
     "capabilityLevel": {
       "type": "string",
-      "enum": ["allow", "deny", "os", "interactive"],
+      "enum": [
+        "allow",
+        "deny",
+        "os",
+        "interactive"
+      ],
       "description": "allow: tool/action available; deny: contradicts the selected mode; os: available in Auto, OS identity decides; interactive: available in Auto but may pause for direct user input."
     },
     "modeMatrix": {
@@ -39,37 +50,385 @@
       "description": "Capability x mode matrix. Ask and Plan restrictions define product intent; Auto is the single execution mode and is never degraded.",
       "additionalProperties": false,
       "required": [
-        "filesystem.read", "visual.read", "notebook.read", "kernel.status", "kernel.inspect",
-        "tasks.write", "delegate.read", "filesystem.write", "notebook.write", "kernel.execute",
-        "process.execute", "process.interactive", "network", "system.execute", "delegate.write"
+        "filesystem.read",
+        "filesystem.write",
+        "visual.read",
+        "notebook.read",
+        "notebook.write",
+        "kernel.status",
+        "kernel.inspect",
+        "kernel.execute",
+        "process.execute",
+        "process.interactive",
+        "network",
+        "system.execute",
+        "tasks.write",
+        "delegate.read",
+        "delegate.write",
+        "kernel.environment.read",
+        "kernel.environment.manage"
       ],
       "properties": {
-        "filesystem.read": { "type": "object", "additionalProperties": false, "required": ["ask", "plan", "auto"], "properties": { "ask": { "const": "allow" }, "plan": { "const": "allow" }, "auto": { "const": "os" } } },
-        "visual.read": { "type": "object", "additionalProperties": false, "required": ["ask", "plan", "auto"], "properties": { "ask": { "const": "allow" }, "plan": { "const": "allow" }, "auto": { "const": "os" } } },
-        "notebook.read": { "type": "object", "additionalProperties": false, "required": ["ask", "plan", "auto"], "properties": { "ask": { "const": "allow" }, "plan": { "const": "allow" }, "auto": { "const": "os" } } },
-        "kernel.status": { "type": "object", "additionalProperties": false, "required": ["ask", "plan", "auto"], "properties": { "ask": { "const": "allow" }, "plan": { "const": "allow" }, "auto": { "const": "os" } } },
-        "kernel.inspect": { "type": "object", "additionalProperties": false, "required": ["ask", "plan", "auto"], "properties": { "ask": { "const": "allow" }, "plan": { "const": "allow" }, "auto": { "const": "os" } } },
-        "tasks.write": { "type": "object", "additionalProperties": false, "required": ["ask", "plan", "auto"], "properties": { "ask": { "const": "deny" }, "plan": { "const": "allow" }, "auto": { "const": "allow" } } },
-        "delegate.read": { "type": "object", "additionalProperties": false, "required": ["ask", "plan", "auto"], "properties": { "ask": { "const": "allow" }, "plan": { "const": "allow" }, "auto": { "const": "allow" } } },
-        "filesystem.write": { "type": "object", "additionalProperties": false, "required": ["ask", "plan", "auto"], "properties": { "ask": { "const": "deny" }, "plan": { "const": "deny" }, "auto": { "const": "os" } } },
-        "notebook.write": { "type": "object", "additionalProperties": false, "required": ["ask", "plan", "auto"], "properties": { "ask": { "const": "deny" }, "plan": { "const": "deny" }, "auto": { "const": "os" } } },
-        "kernel.execute": { "type": "object", "additionalProperties": false, "required": ["ask", "plan", "auto"], "properties": { "ask": { "const": "deny" }, "plan": { "const": "deny" }, "auto": { "const": "os" } } },
-        "process.execute": { "type": "object", "additionalProperties": false, "required": ["ask", "plan", "auto"], "properties": { "ask": { "const": "deny" }, "plan": { "const": "deny" }, "auto": { "const": "os" } } },
-        "process.interactive": { "type": "object", "additionalProperties": false, "required": ["ask", "plan", "auto"], "properties": { "ask": { "const": "deny" }, "plan": { "const": "deny" }, "auto": { "const": "interactive" } } },
-        "network": { "type": "object", "additionalProperties": false, "required": ["ask", "plan", "auto"], "properties": { "ask": { "const": "deny", "description": "Without an exposed read-only research adapter." }, "plan": { "const": "deny", "description": "Without an exposed read-only research adapter." }, "auto": { "const": "os" } } },
-        "system.execute": { "type": "object", "additionalProperties": false, "required": ["ask", "plan", "auto"], "properties": { "ask": { "const": "deny" }, "plan": { "const": "deny" }, "auto": { "const": "interactive" } } },
-        "delegate.write": { "type": "object", "additionalProperties": false, "required": ["ask", "plan", "auto"], "properties": { "ask": { "const": "deny" }, "plan": { "const": "deny" }, "auto": { "const": "allow", "description": "When the selected child profile includes it." } } }
+        "filesystem.read": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ask",
+            "plan",
+            "auto"
+          ],
+          "properties": {
+            "ask": {
+              "const": "allow"
+            },
+            "plan": {
+              "const": "allow"
+            },
+            "auto": {
+              "const": "os"
+            }
+          }
+        },
+        "visual.read": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ask",
+            "plan",
+            "auto"
+          ],
+          "properties": {
+            "ask": {
+              "const": "allow"
+            },
+            "plan": {
+              "const": "allow"
+            },
+            "auto": {
+              "const": "os"
+            }
+          }
+        },
+        "notebook.read": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ask",
+            "plan",
+            "auto"
+          ],
+          "properties": {
+            "ask": {
+              "const": "allow"
+            },
+            "plan": {
+              "const": "allow"
+            },
+            "auto": {
+              "const": "os"
+            }
+          }
+        },
+        "kernel.status": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ask",
+            "plan",
+            "auto"
+          ],
+          "properties": {
+            "ask": {
+              "const": "allow"
+            },
+            "plan": {
+              "const": "allow"
+            },
+            "auto": {
+              "const": "os"
+            }
+          }
+        },
+        "kernel.inspect": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ask",
+            "plan",
+            "auto"
+          ],
+          "properties": {
+            "ask": {
+              "const": "allow"
+            },
+            "plan": {
+              "const": "allow"
+            },
+            "auto": {
+              "const": "os"
+            }
+          }
+        },
+        "tasks.write": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ask",
+            "plan",
+            "auto"
+          ],
+          "properties": {
+            "ask": {
+              "const": "deny"
+            },
+            "plan": {
+              "const": "allow"
+            },
+            "auto": {
+              "const": "allow"
+            }
+          }
+        },
+        "delegate.read": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ask",
+            "plan",
+            "auto"
+          ],
+          "properties": {
+            "ask": {
+              "const": "allow"
+            },
+            "plan": {
+              "const": "allow"
+            },
+            "auto": {
+              "const": "allow"
+            }
+          }
+        },
+        "filesystem.write": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ask",
+            "plan",
+            "auto"
+          ],
+          "properties": {
+            "ask": {
+              "const": "deny"
+            },
+            "plan": {
+              "const": "deny"
+            },
+            "auto": {
+              "const": "os"
+            }
+          }
+        },
+        "notebook.write": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ask",
+            "plan",
+            "auto"
+          ],
+          "properties": {
+            "ask": {
+              "const": "deny"
+            },
+            "plan": {
+              "const": "deny"
+            },
+            "auto": {
+              "const": "os"
+            }
+          }
+        },
+        "kernel.execute": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ask",
+            "plan",
+            "auto"
+          ],
+          "properties": {
+            "ask": {
+              "const": "deny"
+            },
+            "plan": {
+              "const": "deny"
+            },
+            "auto": {
+              "const": "os"
+            }
+          }
+        },
+        "process.execute": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ask",
+            "plan",
+            "auto"
+          ],
+          "properties": {
+            "ask": {
+              "const": "deny"
+            },
+            "plan": {
+              "const": "deny"
+            },
+            "auto": {
+              "const": "os"
+            }
+          }
+        },
+        "process.interactive": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ask",
+            "plan",
+            "auto"
+          ],
+          "properties": {
+            "ask": {
+              "const": "deny"
+            },
+            "plan": {
+              "const": "deny"
+            },
+            "auto": {
+              "const": "interactive"
+            }
+          }
+        },
+        "network": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ask",
+            "plan",
+            "auto"
+          ],
+          "properties": {
+            "ask": {
+              "const": "deny",
+              "description": "Without an exposed read-only research adapter."
+            },
+            "plan": {
+              "const": "deny",
+              "description": "Without an exposed read-only research adapter."
+            },
+            "auto": {
+              "const": "os"
+            }
+          }
+        },
+        "system.execute": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ask",
+            "plan",
+            "auto"
+          ],
+          "properties": {
+            "ask": {
+              "const": "deny"
+            },
+            "plan": {
+              "const": "deny"
+            },
+            "auto": {
+              "const": "interactive"
+            }
+          }
+        },
+        "delegate.write": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ask",
+            "plan",
+            "auto"
+          ],
+          "properties": {
+            "ask": {
+              "const": "deny"
+            },
+            "plan": {
+              "const": "deny"
+            },
+            "auto": {
+              "const": "allow",
+              "description": "When the selected child profile includes it."
+            }
+          }
+        },
+        "kernel.environment.read": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ask",
+            "plan",
+            "auto"
+          ],
+          "properties": {
+            "ask": {
+              "const": "allow"
+            },
+            "plan": {
+              "const": "allow"
+            },
+            "auto": {
+              "const": "allow"
+            }
+          }
+        },
+        "kernel.environment.manage": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ask",
+            "plan",
+            "auto"
+          ],
+          "properties": {
+            "ask": {
+              "const": "deny"
+            },
+            "plan": {
+              "const": "deny"
+            },
+            "auto": {
+              "const": "os"
+            }
+          }
+        }
       }
     },
     "toolCatalogByMode": {
       "type": "object",
       "description": "Projected tool catalogs. For multi-action tools, JSON Schema is mode-filtered so Ask/Plan cannot call execution actions merely because the parent tool exists.",
       "additionalProperties": false,
-      "required": ["ask", "plan", "auto"],
+      "required": [
+        "ask",
+        "plan",
+        "auto"
+      ],
       "properties": {
         "ask": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "uniqueItems": true,
           "minItems": 6,
           "maxItems": 6,
@@ -77,7 +436,9 @@
         },
         "plan": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "uniqueItems": true,
           "minItems": 7,
           "maxItems": 7,
@@ -85,7 +446,9 @@
         },
         "auto": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "uniqueItems": true,
           "minItems": 10,
           "maxItems": 10,
@@ -97,64 +460,285 @@
       "type": "object",
       "description": "Per-mode action filters for multi-action tools. Actions outside the filter are rejected before dispatch and by the Python bridge mode recheck.",
       "additionalProperties": false,
-      "required": ["notebook", "kernel", "inspect", "tasks", "delegate"],
+      "required": [
+        "notebook",
+        "kernel",
+        "inspect",
+        "tasks",
+        "delegate"
+      ],
       "properties": {
         "notebook": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["ask", "plan", "auto"],
+          "required": [
+            "ask",
+            "plan",
+            "auto"
+          ],
           "properties": {
-            "ask": { "type": "array", "items": { "const": "read_cell" }, "uniqueItems": true, "minItems": 1, "maxItems": 1 },
-            "plan": { "type": "array", "items": { "const": "read_cell" }, "uniqueItems": true, "minItems": 1, "maxItems": 1 },
+            "ask": {
+              "type": "array",
+              "items": {
+                "const": "read_cell"
+              },
+              "uniqueItems": true,
+              "minItems": 1,
+              "maxItems": 1
+            },
+            "plan": {
+              "type": "array",
+              "items": {
+                "const": "read_cell"
+              },
+              "uniqueItems": true,
+              "minItems": 1,
+              "maxItems": 1
+            },
             "auto": {
               "type": "array",
-              "items": { "type": "string", "enum": ["read_cell", "update_cell", "insert_cell", "delete_cell", "move_cell", "run_cell", "add_markdown", "clear_output"] },
-              "uniqueItems": true, "minItems": 8, "maxItems": 8
+              "items": {
+                "type": "string",
+                "enum": [
+                  "read_cell",
+                  "update_cell",
+                  "insert_cell",
+                  "delete_cell",
+                  "move_cell",
+                  "run_cell",
+                  "add_markdown",
+                  "clear_output"
+                ]
+              },
+              "uniqueItems": true,
+              "minItems": 8,
+              "maxItems": 8
             }
           }
         },
         "kernel": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["ask", "plan", "auto"],
+          "required": [
+            "ask",
+            "plan",
+            "auto"
+          ],
           "properties": {
-            "ask": { "type": "array", "items": { "const": "status" }, "uniqueItems": true, "minItems": 1, "maxItems": 1 },
-            "plan": { "type": "array", "items": { "const": "status" }, "uniqueItems": true, "minItems": 1, "maxItems": 1 },
+            "ask": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "status",
+                  "list_environments",
+                  "operation_status"
+                ]
+              },
+              "uniqueItems": true,
+              "minItems": 3,
+              "maxItems": 3
+            },
+            "plan": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "status",
+                  "list_environments",
+                  "operation_status"
+                ]
+              },
+              "uniqueItems": true,
+              "minItems": 3,
+              "maxItems": 3
+            },
             "auto": {
               "type": "array",
-              "items": { "type": "string", "enum": ["status", "execute", "interrupt", "restart", "shutdown"] },
-              "uniqueItems": true, "minItems": 5, "maxItems": 5
+              "items": {
+                "type": "string",
+                "enum": [
+                  "status",
+                  "execute",
+                  "interrupt",
+                  "restart",
+                  "shutdown",
+                  "list_environments",
+                  "operation_status",
+                  "create_temporary",
+                  "create_maintained",
+                  "sync_environment",
+                  "start_environment",
+                  "promote_environment",
+                  "delete_environment"
+                ]
+              },
+              "uniqueItems": true,
+              "minItems": 13,
+              "maxItems": 13
             }
           }
         },
         "inspect": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["ask", "plan", "auto"],
+          "required": [
+            "ask",
+            "plan",
+            "auto"
+          ],
           "properties": {
-            "ask": { "type": "array", "items": { "type": "string", "enum": ["variables", "variable", "dataframe", "figure", "object"] }, "uniqueItems": true, "minItems": 5, "maxItems": 5 },
-            "plan": { "type": "array", "items": { "type": "string", "enum": ["variables", "variable", "dataframe", "figure", "object"] }, "uniqueItems": true, "minItems": 5, "maxItems": 5 },
-            "auto": { "type": "array", "items": { "type": "string", "enum": ["variables", "variable", "dataframe", "figure", "object"] }, "uniqueItems": true, "minItems": 5, "maxItems": 5 }
+            "ask": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "variables",
+                  "variable",
+                  "dataframe",
+                  "figure",
+                  "object"
+                ]
+              },
+              "uniqueItems": true,
+              "minItems": 5,
+              "maxItems": 5
+            },
+            "plan": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "variables",
+                  "variable",
+                  "dataframe",
+                  "figure",
+                  "object"
+                ]
+              },
+              "uniqueItems": true,
+              "minItems": 5,
+              "maxItems": 5
+            },
+            "auto": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "variables",
+                  "variable",
+                  "dataframe",
+                  "figure",
+                  "object"
+                ]
+              },
+              "uniqueItems": true,
+              "minItems": 5,
+              "maxItems": 5
+            }
           }
         },
         "tasks": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["ask", "plan", "auto"],
+          "required": [
+            "ask",
+            "plan",
+            "auto"
+          ],
           "properties": {
-            "ask": { "type": "array", "items": { "type": "string" }, "maxItems": 0, "description": "tasks is not advertised in Ask by default." },
-            "plan": { "type": "array", "items": { "type": "string", "enum": ["get", "replace", "patch"] }, "uniqueItems": true, "minItems": 3, "maxItems": 3 },
-            "auto": { "type": "array", "items": { "type": "string", "enum": ["get", "replace", "patch"] }, "uniqueItems": true, "minItems": 3, "maxItems": 3 }
+            "ask": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 0,
+              "description": "tasks is not advertised in Ask by default."
+            },
+            "plan": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "get",
+                  "replace",
+                  "patch"
+                ]
+              },
+              "uniqueItems": true,
+              "minItems": 3,
+              "maxItems": 3
+            },
+            "auto": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "get",
+                  "replace",
+                  "patch"
+                ]
+              },
+              "uniqueItems": true,
+              "minItems": 3,
+              "maxItems": 3
+            }
           }
         },
         "delegate": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["ask", "plan", "auto"],
+          "required": [
+            "ask",
+            "plan",
+            "auto"
+          ],
           "properties": {
-            "ask": { "type": "array", "items": { "type": "string", "enum": ["analysis", "research", "review"] }, "uniqueItems": true, "minItems": 3, "maxItems": 3, "description": "Non-writing profiles only." },
-            "plan": { "type": "array", "items": { "type": "string", "enum": ["analysis", "research", "review"] }, "uniqueItems": true, "minItems": 3, "maxItems": 3, "description": "Non-writing profiles only." },
-            "auto": { "type": "array", "items": { "type": "string", "enum": ["analysis", "research", "review", "implementation"] }, "uniqueItems": true, "minItems": 4, "maxItems": 4 }
+            "ask": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "analysis",
+                  "research",
+                  "review"
+                ]
+              },
+              "uniqueItems": true,
+              "minItems": 3,
+              "maxItems": 3,
+              "description": "Non-writing profiles only."
+            },
+            "plan": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "analysis",
+                  "research",
+                  "review"
+                ]
+              },
+              "uniqueItems": true,
+              "minItems": 3,
+              "maxItems": 3,
+              "description": "Non-writing profiles only."
+            },
+            "auto": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "analysis",
+                  "research",
+                  "review",
+                  "implementation"
+                ]
+              },
+              "uniqueItems": true,
+              "minItems": 4,
+              "maxItems": 4
+            }
           }
         }
       }
@@ -163,24 +747,63 @@
       "type": "object",
       "description": "Persisted mode selection. There is no requested/effective split and no Auto-to-another-mode degradation.",
       "additionalProperties": false,
-      "required": ["mode", "changed_by", "changed_at"],
+      "required": [
+        "mode",
+        "changed_by",
+        "changed_at"
+      ],
       "properties": {
-        "mode": { "$ref": "#/definitions/mode" },
-        "changed_by": { "type": "string", "enum": ["user", "host"] },
-        "changed_at": { "type": "string", "format": "date-time" },
-        "approval_preference": { "type": "string", "enum": ["automatic", "review_all"], "default": "automatic" }
+        "mode": {
+          "$ref": "#/definitions/mode"
+        },
+        "changed_by": {
+          "type": "string",
+          "enum": [
+            "user",
+            "host"
+          ]
+        },
+        "changed_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "approval_preference": {
+          "type": "string",
+          "enum": [
+            "automatic",
+            "review_all"
+          ],
+          "default": "automatic"
+        }
       }
     },
     "executionIdentity": {
       "type": "object",
       "description": "Recorded Auto execution identity. The browser may show an identity hint but must not claim sandbox confinement unless the deployment actually runs that user in a container/sandbox.",
       "additionalProperties": false,
-      "required": ["username", "uid", "home", "workspace"],
+      "required": [
+        "username",
+        "uid",
+        "home",
+        "workspace"
+      ],
       "properties": {
-        "username": { "type": "string" },
-        "uid": { "type": ["integer", "string", "null"] },
-        "home": { "type": "string" },
-        "workspace": { "type": "string" }
+        "username": {
+          "type": "string"
+        },
+        "uid": {
+          "type": [
+            "integer",
+            "string",
+            "null"
+          ]
+        },
+        "home": {
+          "type": "string"
+        },
+        "workspace": {
+          "type": "string"
+        }
       }
     },
     "legacySessionState": {
@@ -188,29 +811,113 @@
       "description": "Legacy state that may contain pilot fields. Accepted only by the migration loader; new schemas reject pilot.",
       "additionalProperties": true,
       "properties": {
-        "mode": { "type": "string", "enum": ["pilot", "ask", "plan", "auto"] },
-        "requested_mode": { "type": "string", "enum": ["pilot", "ask", "plan", "auto"] },
-        "effective_mode": { "type": "string", "enum": ["pilot", "ask", "plan", "auto"] }
+        "mode": {
+          "type": "string",
+          "enum": [
+            "pilot",
+            "ask",
+            "plan",
+            "auto"
+          ]
+        },
+        "requested_mode": {
+          "type": "string",
+          "enum": [
+            "pilot",
+            "ask",
+            "plan",
+            "auto"
+          ]
+        },
+        "effective_mode": {
+          "type": "string",
+          "enum": [
+            "pilot",
+            "ask",
+            "plan",
+            "auto"
+          ]
+        }
       }
     }
   },
   "type": "object",
   "additionalProperties": false,
-  "required": ["protocolVersion", "modes", "matrix", "catalogs", "actionFilters", "legacyMigration"],
+  "required": [
+    "protocolVersion",
+    "modes",
+    "matrix",
+    "catalogs",
+    "actionFilters",
+    "legacyMigration"
+  ],
   "properties": {
-    "protocolVersion": { "const": "0.1" },
-    "modes": { "type": "array", "items": { "$ref": "#/definitions/mode" }, "uniqueItems": true, "minItems": 3, "maxItems": 3 },
-    "matrix": { "$ref": "#/definitions/modeMatrix" },
-    "catalogs": { "$ref": "#/definitions/toolCatalogByMode" },
-    "actionFilters": { "$ref": "#/definitions/toolActionFilter" },
+    "protocolVersion": {
+      "const": "0.2"
+    },
+    "modes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/mode"
+      },
+      "uniqueItems": true,
+      "minItems": 3,
+      "maxItems": 3
+    },
+    "matrix": {
+      "$ref": "#/definitions/modeMatrix"
+    },
+    "catalogs": {
+      "$ref": "#/definitions/toolCatalogByMode"
+    },
+    "actionFilters": {
+      "$ref": "#/definitions/toolActionFilter"
+    },
     "legacyMigration": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["mode", "requested_mode", "effective_mode"],
+      "required": [
+        "mode",
+        "requested_mode",
+        "effective_mode"
+      ],
       "properties": {
-        "mode": { "type": "object", "additionalProperties": false, "required": ["pilot"], "properties": { "pilot": { "const": "auto" } } },
-        "requested_mode": { "type": "object", "additionalProperties": false, "required": ["pilot"], "properties": { "pilot": { "const": "auto" } } },
-        "effective_mode": { "type": "object", "additionalProperties": false, "required": ["pilot"], "properties": { "pilot": { "const": "auto" } } }
+        "mode": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "pilot"
+          ],
+          "properties": {
+            "pilot": {
+              "const": "auto"
+            }
+          }
+        },
+        "requested_mode": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "pilot"
+          ],
+          "properties": {
+            "pilot": {
+              "const": "auto"
+            }
+          }
+        },
+        "effective_mode": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "pilot"
+          ],
+          "properties": {
+            "pilot": {
+              "const": "auto"
+            }
+          }
+        }
       },
       "description": "mode=pilot, requested_mode=pilot, effective_mode=pilot all map to auto exactly once. Legacy fields are removed after one successful write in the new schema."
     }

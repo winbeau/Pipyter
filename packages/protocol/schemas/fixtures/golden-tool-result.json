@@ -1,7 +1,7 @@
 {
   "name": "golden-tool-result",
   "description": "Cross-language golden fixture: Pigent tool result envelopes (success and failure). Python round-trips it through pipyter.protocol.pigent.PigentToolResult; TypeScript validates it against packages/protocol/src/pigent.ts types.",
-  "protocol_version": "0.1",
+  "protocol_version": "0.2",
   "success": {
     "version": 1,
     "ok": true,

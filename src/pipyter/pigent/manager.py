@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 from .client import PigentJsonlClient, PigentProtocolError
+from ..protocol.pigent import PIGENT_ACTION_FILTERS, PIGENT_CAPABILITIES, PIGENT_CATALOGS, PIGENT_EVENT_TYPES, PIGENT_PROTOCOL_VERSION, PIGENT_TOOL_NAMES
 from .resources import PigentResourceError, host_entry as packaged_host_entry, load_manifest, resolve_node, verify_payload
 
 
@@ -48,6 +49,8 @@ class PigentManager:
         self._lock = asyncio.Lock()
         self._log_handle = None
         self._startup_path: Path | None = None
+        self._handshake: dict[str, Any] | None = None
+        self._manifest: dict[str, Any] | None = None
 
     @staticmethod
     def _default_host_entry() -> Path:
@@ -91,7 +94,7 @@ class PigentManager:
             env["PIGENT_BRIDGE_TOKEN"] = self.bridge_token
             startup = {
                 "version": 1,
-                "protocolVersion": "0.1",
+                "protocolVersion": PIGENT_PROTOCOL_VERSION,
                 "workspaceId": self.workspace_id,
                 "workspaceRoot": str(self.workspace),
                 "sessionDir": str(self.workspace / ".pipyter" / "pigent" / "sessions"),
@@ -127,10 +130,66 @@ class PigentManager:
             except Exception:
                 await self._discard_process()
                 raise
-            if ready.get("protocol_version") != "0.1":
+            try:
+                manifest = verify_payload() if self.host_entry is None and not os.environ.get("PIGENT_HOST_ENTRY") else None
+                self._handshake = self._validate_handshake(ready, manifest)
+                self._manifest = manifest
+            except (PigentProtocolError, PigentResourceError):
                 await self._discard_process()
-                raise PigentProtocolError("Pigent host protocol mismatch")
+                raise
             return self.client
+
+    @staticmethod
+    def _validate_handshake(value: dict[str, Any], manifest: dict[str, Any] | None = None) -> dict[str, Any]:
+        if value.get("protocol_version") != PIGENT_PROTOCOL_VERSION or value.get("tool_protocol_version") != PIGENT_PROTOCOL_VERSION:
+            raise PigentProtocolError("Pigent host protocol mismatch")
+        tools = tuple(value.get("tools") or ())
+        if tools != PIGENT_TOOL_NAMES:
+            raise PigentProtocolError("Pigent host tool catalog mismatch")
+        modes = value.get("modes")
+        action_filters = value.get("action_filters")
+        capabilities = value.get("capabilities")
+        event_types = value.get("event_types")
+        if not isinstance(modes, dict) or not isinstance(action_filters, dict) or not isinstance(capabilities, list) or not isinstance(event_types, list):
+            raise PigentProtocolError("Pigent host handshake is incomplete")
+        for mode, ceiling in PIGENT_CATALOGS.items():
+            advertised = modes.get(mode)
+            if not isinstance(advertised, list) or any(tool not in ceiling for tool in advertised):
+                raise PigentProtocolError(f"Pigent host mode catalog mismatch: {mode}")
+        negotiated_actions: dict[str, dict[str, list[str]]] = {}
+        for tool, by_mode in PIGENT_ACTION_FILTERS.items():
+            host_by_mode = action_filters.get(tool)
+            if not isinstance(host_by_mode, dict):
+                raise PigentProtocolError(f"Pigent host action filter missing: {tool}")
+            negotiated_actions[tool] = {}
+            for mode, ceiling in by_mode.items():
+                advertised = host_by_mode.get(mode)
+                if not isinstance(advertised, list) or any(action not in ceiling for action in advertised):
+                    raise PigentProtocolError(f"Pigent host action filter mismatch: {tool}/{mode}")
+                negotiated_actions[tool][mode] = [action for action in ceiling if action in advertised]
+        negotiated_capabilities = [item for item in PIGENT_CAPABILITIES if item in capabilities]
+        negotiated_events = [item for item in PIGENT_EVENT_TYPES if item in event_types]
+        if manifest is not None and (
+            manifest.get("host_protocol_version") != value.get("protocol_version")
+            or manifest.get("tool_protocol_version") != value.get("tool_protocol_version")
+        ):
+            raise PigentProtocolError("Pigent payload manifest/host protocol mismatch")
+        return {
+            "protocol_version": PIGENT_PROTOCOL_VERSION,
+            "runtime_version": value.get("runtime_version"),
+            "tools": list(PIGENT_TOOL_NAMES),
+            "modes": {mode: [tool for tool in ceiling if tool in modes[mode]] for mode, ceiling in PIGENT_CATALOGS.items()},
+            "action_filters": negotiated_actions,
+            "capabilities": negotiated_capabilities,
+            "event_types": negotiated_events,
+        }
+
+    async def negotiated_capabilities(self, *, start: bool = True) -> dict[str, Any]:
+        if start:
+            await self.ensure_started()
+        if self._handshake is None:
+            raise PigentUnavailable("payload_missing: verified Pigent host handshake is unavailable")
+        return dict(self._handshake)
 
     async def command(self, command: str, **payload: Any) -> dict[str, Any]:
         client = await self.ensure_started()
@@ -143,6 +202,8 @@ class PigentManager:
 
     async def _discard_process(self) -> None:
         process, self.process, self.client = self.process, None, None
+        self._handshake = None
+        self._manifest = None
         if process is not None and process.returncode is None:
             process.kill()
             await process.wait()
@@ -160,6 +221,8 @@ class PigentManager:
                 await client.close()
             self.client = None
             self.process = None
+            self._handshake = None
+            self._manifest = None
             if self._log_handle is not None:
                 self._log_handle.close()
                 self._log_handle = None
@@ -171,11 +234,12 @@ class PigentManager:
         running = self.process is not None and self.process.returncode is None
         finding = resolve_node()
         try:
-            manifest = load_manifest()
+            manifest = verify_payload()
             payload_ok, payload_error = True, None
         except PigentResourceError as error:
             manifest, payload_ok, payload_error = {}, False, str(error)
         return {"status": "running" if running else "stopped", "pid": self.process.pid if running else None,
                 "restart_count": self.restart_count, "payload_ok": payload_ok, "payload_error": payload_error,
-                "runtime_version": manifest.get("runtime_version"), "node_ok": finding.ok,
+                "runtime_version": manifest.get("runtime_version"), "protocol_version": manifest.get("host_protocol_version"),
+                "negotiated": self._handshake, "node_ok": finding.ok,
                 "node_version": finding.version, "node_required": finding.required, "node_finding": finding.message}

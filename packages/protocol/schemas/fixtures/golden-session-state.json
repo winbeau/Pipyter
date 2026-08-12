@@ -1,7 +1,7 @@
 {
   "name": "golden-session-state",
-  "description": "Cross-language golden fixture: a complete PigentSession record with mode state, execution identity, tasks snapshot and model snapshot. All optional/defaulted fields are explicit so Python round-trips byte-for-byte.",
-  "protocol_version": "0.1",
+  "description": "Cross-language golden fixture: a complete public PigentSession record with mode state, tasks snapshot and model snapshot. Private Runtime execution identity is injected only into the Host command. All optional/defaulted fields are explicit so Python round-trips byte-for-byte.",
+  "protocol_version": "0.2",
   "session": {
     "id": "pigent_sess_01",
     "account_id": "account_01",
@@ -10,12 +10,6 @@
     "node_id": "h100-server",
     "mode": "auto",
     "approval_preference": "automatic",
-    "execution_identity": {
-      "username": "researcher",
-      "uid": 1000,
-      "home": "/home/researcher",
-      "workspace": "/home/researcher/project"
-    },
     "status": "active",
     "title": "修复稀疏度骤降渲染",
     "created_at": "2025-01-01T00:00:00Z",
@@ -51,7 +45,9 @@
             "id": "fix",
             "title": "调整滑动窗口并重新运行",
             "status": "running",
-            "depends_on": ["locate"],
+            "depends_on": [
+              "locate"
+            ],
             "completion_criteria": [],
             "children": []
           },
@@ -59,7 +55,9 @@
             "id": "verify",
             "title": "验证相邻层稀疏度一致性",
             "status": "pending",
-            "depends_on": ["fix"],
+            "depends_on": [
+              "fix"
+            ],
             "completion_criteria": [],
             "children": []
           }

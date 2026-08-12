@@ -27,6 +27,9 @@ class FakeKernels:
             self.release.wait(timeout=2)
         return ExecuteResponse(kernel_id=kernel_id, execution_count=len(self.calls), status="idle",
                                outputs=[KernelOutput(type="stream", name="stdout", text="ran\n")])
+    async def execute_async(self, kernel_id, code, timeout, *, store_history=True):
+        return await asyncio.to_thread(self.execute, kernel_id, code, timeout)
+
 
 
 def run(coro):
@@ -115,7 +118,7 @@ def test_bridge_injects_trusted_active_notebook_path(tmp_path):
     context = PigentToolContext(tool_call_id="active-read", session_id="s", workspace_id="w", mode="ask")
     result = run(bridge.dispatch("notebook", {"action": "read_cell", "cell_id": "cell-a"}, context))
     assert result.ok
-    assert result.data["path"] == str(path)
+    assert result.data["path"] == path.name
     assert result.data["cell_id"] == "cell-a"
 
 

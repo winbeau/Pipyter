@@ -10,12 +10,15 @@ from typing import Iterator
 
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from .._version import __version__
 from ..exceptions import UnsafePathError
 from ..kernel import KernelRuntime
+from ..kernel.environments import KernelEnvironmentError, KernelEnvironmentRegistry
+from ..kernel.operations import OperationManager
+from ..kernel.cleanup import KernelCleanupService
 from ..pigent import PigentBridge, create_internal_router
 from ..pigent.config import PigentConfigError, PigentConfigStore
 from ..pigent.manager import PigentManager
@@ -81,7 +84,10 @@ def create_app(
         value.strip() for value in origin_env.split(",") if value.strip()
     ]
     cors_origins = explicit_origins or ["http://127.0.0.1:5173", "http://localhost:5173"]
-    kernels = KernelRuntime(workspace_root)
+    kernel_environments = KernelEnvironmentRegistry(config_root=config_root)
+    kernels = KernelRuntime(workspace_root, kernel_environments)
+    kernel_operations = OperationManager(kernel_environments, workspace_root)
+    kernel_cleanup = KernelCleanupService(kernel_environments, kernels, kernel_operations)
     terminal = TerminalRuntime(workspace_root)
     terminal_sessions = TerminalSessionManager(workspace_root)
 
@@ -89,12 +95,15 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
+        kernel_cleanup.start()
         yield
         manager = manager_holder.get("manager")
         if manager is not None:
             await manager.shutdown()
+        await kernel_cleanup.shutdown()
+        await kernel_operations.shutdown()
         terminal_sessions.shutdown()
-        kernels.shutdown_all()
+        await kernels.shutdown_all_async()
 
     app = FastAPI(
         title="Pipyter Runtime API",
@@ -107,9 +116,13 @@ def create_app(
     app.state.node_id = node_id
     app.state.runtime_auth_enabled = bool(runtime_token)
     app.state.kernels = kernels
+    app.state.kernel_environments = kernel_environments
+    app.state.kernel_operations = kernel_operations
+    app.state.kernel_cleanup = kernel_cleanup
     app.state.terminal = terminal
     app.state.terminal_sessions = terminal_sessions
-    bridge = PigentBridge(workspace_root, project.workspace_id, kernels, terminal_sessions=terminal_sessions)
+    bridge = PigentBridge(workspace_root, project.workspace_id, kernels, terminal_sessions=terminal_sessions,
+                          environments=kernel_environments, operations=kernel_operations)
     bridge_credential = os.environ.get("PIPYTER_PIGENT_BRIDGE_TOKEN") or secrets.token_urlsafe(32)
     app.state.pigent_bridge = bridge
     app.state.pigent_bridge_credential = bridge_credential
@@ -122,12 +135,19 @@ def create_app(
         bridge_endpoint=(
             bridge_endpoint
             or os.environ.get("PIPYTER_PIGENT_BRIDGE_ENDPOINT")
-            or "http://127.0.0.1:8765/internal/pigent/v1"
+            or f"http://127.0.0.1:{os.environ.get('PIPYTER_RUNTIME_PORT', '8895')}/internal/pigent/v1"
         ),
         bridge_token=bridge_credential,
     )
     manager_holder["manager"] = pigent_manager
     pigent_sessions = PigentSessionService(workspace_root, project, bridge, pigent_config, pigent_manager)
+
+    async def operation_event(event_type: str, payload: dict) -> None:
+        operation = payload.get("operation") or {}
+        session_id = operation.get("session_id")
+        if isinstance(session_id, str) and session_id in pigent_sessions.sessions:
+            await pigent_sessions.emit(pigent_sessions.sessions[session_id], event_type, payload)
+    kernel_operations.on_event = operation_event
     app.state.pigent_config = pigent_config
     app.state.pigent_manager = pigent_manager
     app.state.pigent_sessions = pigent_sessions
@@ -153,6 +173,20 @@ def create_app(
     @app.get("/api/v1/health", response_model=HealthResponse)
     def health() -> HealthResponse:
         return HealthResponse(node_id=node_id, workspace_id=project.workspace_id)
+
+    @app.get("/api/v1/pigent/artifacts/{artifact_id}")
+    async def get_pigent_artifact(artifact_id: str, download: bool = Query(default=False)):
+        try:
+            item = bridge.artifacts._items.get(artifact_id)
+            if item is None:
+                raise KeyError(artifact_id)
+            raw = item.path.read_bytes()
+            if item.ref.hash != "sha256:" + __import__("hashlib").sha256(raw).hexdigest():
+                raise HTTPException(status_code=403, detail="Artifact integrity check failed")
+            headers = {"Content-Disposition": f'attachment; filename="{item.path.name}"'} if download else {}
+            return Response(raw, media_type=item.ref.mime, headers=headers)
+        except (KeyError, FileNotFoundError) as error:
+            raise HTTPException(status_code=404, detail="Artifact not found or expired") from error
 
     @app.get("/api/v1/pigent/config")
     def get_pigent_config() -> dict:
@@ -280,24 +314,128 @@ def create_app(
         return kernels.specs()
 
     @app.post("/api/v1/kernels", response_model=KernelSummary, status_code=201)
-    def start_kernel(body: KernelStartRequest) -> KernelSummary:
-        return _translate_errors(lambda: kernels.start(body.kernel_name))
+    async def start_kernel(body: KernelStartRequest) -> KernelSummary:
+        try:
+            return await kernels.start_async(body.kernel_name, environment_id=body.environment_id, notebook_path=body.notebook_path)
+        except KernelEnvironmentError as error:
+            raise HTTPException(status_code=409, detail={"code": error.code, "message": str(error)}) from error
+        except (KeyError, ValueError, RuntimeError) as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
 
     @app.post("/api/v1/kernels/{kernel_id}/execute", response_model=ExecuteResponse)
-    def execute(kernel_id: str, body: ExecuteRequest) -> ExecuteResponse:
-        return _translate_errors(lambda: kernels.execute(kernel_id, body.code, body.timeout))
+    async def execute(kernel_id: str, body: ExecuteRequest) -> ExecuteResponse:
+        try:
+            return await kernels.execute_async(kernel_id, body.code, body.timeout, store_history=True)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except TimeoutError as error:
+            raise HTTPException(status_code=504, detail=str(error)) from error
+        except RuntimeError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
 
     @app.post("/api/v1/kernels/{kernel_id}/interrupt", response_model=KernelSummary)
-    def interrupt_kernel(kernel_id: str) -> KernelSummary:
-        return _translate_errors(lambda: kernels.interrupt(kernel_id))
+    async def interrupt_kernel(kernel_id: str) -> KernelSummary:
+        try:
+            return await kernels.interrupt_async(kernel_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
 
     @app.post("/api/v1/kernels/{kernel_id}/restart", response_model=KernelSummary)
-    def restart_kernel(kernel_id: str) -> KernelSummary:
-        return _translate_errors(lambda: kernels.restart(kernel_id))
+    async def restart_kernel(kernel_id: str) -> KernelSummary:
+        try:
+            return await kernels.restart_async(kernel_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
 
     @app.delete("/api/v1/kernels/{kernel_id}", status_code=204)
-    def shutdown_kernel(kernel_id: str) -> None:
-        _translate_errors(lambda: kernels.shutdown(kernel_id))
+    async def shutdown_kernel(kernel_id: str) -> None:
+        try:
+            await kernels.shutdown_async(kernel_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
+    def public_operation(operation):
+        return operation.model_dump(mode="json")
+
+    @app.get("/api/v1/kernel-environments")
+    def list_kernel_environments() -> list[dict]:
+        return [item.model_dump(mode="json") for item in kernel_environments.summaries(kernels.active_by_environment())]
+
+    @app.get("/api/v1/kernel-environments/{environment_id}")
+    def get_kernel_environment(environment_id: str) -> dict:
+        values = {item.id: item for item in kernel_environments.summaries(kernels.active_by_environment())}
+        if environment_id not in values:
+            raise HTTPException(status_code=404, detail={"code": "kernel_environment_not_found", "message": "Environment not found"})
+        return values[environment_id].model_dump(mode="json")
+
+    @app.post("/api/v1/kernel-environments/temporary", status_code=202)
+    async def create_temporary_environment(body: dict) -> dict:
+        try:
+            operation = kernel_operations.create_temporary(body)
+            return public_operation(operation)
+        except KernelEnvironmentError as error:
+            raise HTTPException(status_code=409, detail={"code": error.code, "message": str(error)}) from error
+
+    @app.post("/api/v1/kernel-environments/maintained", status_code=202)
+    async def create_maintained_environment(body: dict) -> dict:
+        try:
+            operation = kernel_operations.create_maintained(body)
+            return public_operation(operation)
+        except KernelEnvironmentError as error:
+            raise HTTPException(status_code=409, detail={"code": error.code, "message": str(error)}) from error
+
+    @app.post("/api/v1/kernel-environments/{environment_id}/sync", status_code=202)
+    async def sync_kernel_environment(environment_id: str) -> dict:
+        try:
+            return public_operation(kernel_operations.sync(environment_id))
+        except KernelEnvironmentError as error:
+            raise HTTPException(status_code=409, detail={"code": error.code, "message": str(error)}) from error
+
+    @app.post("/api/v1/kernel-environments/{environment_id}/promote", status_code=202)
+    async def promote_kernel_environment(environment_id: str, body: dict) -> dict:
+        if kernels.active_by_environment().get(environment_id):
+            raise HTTPException(status_code=409, detail={"code": "kernel_environment_busy", "message": "Environment has active Kernels"})
+        try:
+            return public_operation(kernel_operations.promote(environment_id, str(body.get("name", "")), body.get("display_name")))
+        except KernelEnvironmentError as error:
+            raise HTTPException(status_code=409, detail={"code": error.code, "message": str(error)}) from error
+
+    @app.post("/api/v1/kernel-environments/{environment_id}/start", response_model=KernelSummary, status_code=201)
+    async def start_kernel_environment(environment_id: str, body: dict | None = None) -> KernelSummary:
+        body = body or {}
+        try:
+            return await kernels.start_async(None, environment_id=environment_id, notebook_path=body.get("notebook_path"))
+        except (KernelEnvironmentError, KeyError, RuntimeError, ValueError) as error:
+            code = error.code if isinstance(error, KernelEnvironmentError) else "kernel_environment_conflict"
+            raise HTTPException(status_code=409, detail={"code": code, "message": str(error)}) from error
+
+    @app.delete("/api/v1/kernel-environments/{environment_id}", status_code=202)
+    async def delete_kernel_environment(environment_id: str, confirmed: bool = Query(default=False)) -> dict:
+        active = kernels.active_by_environment().get(environment_id)
+        if active:
+            raise HTTPException(status_code=409, detail={"code": "kernel_environment_busy", "message": "Environment has active Kernels", "kernel_ids": active})
+        try:
+            value = kernel_environments.get(environment_id)
+            if value["kind"] == "maintained" and not confirmed:
+                raise HTTPException(status_code=409, detail={"code": "confirmation_required", "message": "Maintained delete requires confirmed=true"})
+            return public_operation(kernel_operations.delete(environment_id))
+        except KernelEnvironmentError as error:
+            raise HTTPException(status_code=409, detail={"code": error.code, "message": str(error)}) from error
+
+    @app.get("/api/v1/operations/{operation_id}")
+    def get_operation(operation_id: str) -> dict:
+        try:
+            return public_operation(kernel_operations.get(operation_id))
+        except KernelEnvironmentError as error:
+            raise HTTPException(status_code=404, detail={"code": error.code, "message": str(error)}) from error
+
+    @app.post("/api/v1/operations/{operation_id}/cancel", status_code=202)
+    async def cancel_operation(operation_id: str) -> dict:
+        try:
+            return public_operation(await kernel_operations.cancel(operation_id))
+        except KernelEnvironmentError as error:
+            status = 409 if error.code == "operation_not_cancellable" else 404
+            raise HTTPException(status_code=status, detail={"code": error.code, "message": str(error)}) from error
 
     @app.get("/api/v1/terminals", response_model=list[TerminalSession])
     def list_terminals() -> list[TerminalSession]:

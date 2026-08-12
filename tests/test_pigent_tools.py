@@ -35,9 +35,13 @@ def test_nul_invalid_utf8_and_relative_absolute_paths(tmp_path):
     outside = tmp_path.parent / "absolute-pigent.txt"
     outside.write_text("absolute", encoding="utf-8")
     try:
-        assert run(service.read({"path": "relative.txt"})).data["content"] == "relative"
-        assert run(service.read({"path": str(outside)})).data["content"] == "absolute"
-        assert run(service.read({"path": "../absolute-pigent.txt"})).data["content"] == "absolute"
+        relative = run(service.read({"path": "relative.txt"}))
+        absolute = run(service.read({"path": str(outside)}))
+        traversed = run(service.read({"path": "../absolute-pigent.txt"}))
+        assert relative.data["content"] == "relative" and relative.data["path"] == "relative.txt"
+        assert absolute.data["content"] == "absolute" and absolute.data["path"] == outside.name
+        assert traversed.data["content"] == "absolute" and traversed.data["path"] == outside.name
+        assert str(tmp_path.parent) not in json.dumps([relative.model_dump(), absolute.model_dump(), traversed.model_dump()])
     finally:
         outside.unlink(missing_ok=True)
 
@@ -106,6 +110,7 @@ def test_bash_outside_workspace_timeout_cancellation_and_secret_filter(tmp_path,
     outside = tmp_path.parent
     result = run(service.bash({"command": "pwd", "cwd": str(outside)}))
     assert result.data["stdout"].strip() == str(outside)
+    assert result.data["cwd"] == outside.name
     monkeypatch.setenv("OPENAI_API_KEY", "do-not-leak")
     monkeypatch.setenv("PIPYTER_PIGENT_BRIDGE_TOKEN", "bridge-secret")
     env_result = run(service.bash({"command": "printf '%s|%s' \"${OPENAI_API_KEY-unset}\" \"${PIPYTER_PIGENT_BRIDGE_TOKEN-unset}\""}))
@@ -133,7 +138,7 @@ def test_authenticated_bridge_idempotency_modes_and_text_vertical_slice(tmp_path
         return success("tasks", data={"state": arguments["action"]})
 
     bridge.register_handler("tasks", tasks)
-    base = {"protocol_version": "0.1", "session_id": "session-1", "workspace_id": "workspace-1", "mode": "ask"}
+    base = {"protocol_version": "0.2", "session_id": "session-1", "workspace_id": "workspace-1", "mode": "ask"}
 
     async def dispatch(tool, call_id, arguments):
         return await bridge.dispatch(tool, arguments, PigentToolContext(tool_call_id=call_id, **base))

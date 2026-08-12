@@ -315,7 +315,7 @@ export function WorkspaceProvider({
   children,
   apiBase = '',
   runtimeKey = 'local:current',
-  allowDemo = true,
+  allowDemo = false,
   expectedNodeId,
   expectedWorkspaceId,
 }: {
