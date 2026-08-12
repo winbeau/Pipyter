@@ -23,6 +23,8 @@ jobs:
           cache-dependency-path: packages/pigent/package-lock.json
       - run: npm ci --prefix packages/pigent
       - run: npm run payload:build --prefix packages/pigent
+      - run: npm install --prefix web
+      - run: npm run build --prefix web
       - run: uv sync --extra dev --frozen
       - run: npm run payload:verify --prefix packages/pigent
       - run: npm run check:engine-independence --prefix packages/pigent
